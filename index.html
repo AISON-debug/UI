@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Nutrients DB CRUD</title>
+<style>
+  table { border-collapse: collapse; }
+  th, td { border: 1px solid #ccc; padding: 4px; }
+</style>
+</head>
+<body>
+<h1>База продуктов</h1>
+<p>Количество продуктов: <span id="count"></span></p>
+<table id="productsTable">
+  <thead>
+    <tr>
+      <th>Продукт</th>
+      <th>Белки</th>
+      <th>Насыщенные</th>
+      <th>НЕнасыщенные</th>
+      <th>Простые</th>
+      <th>Сложные перевариваемые</th>
+      <th>Растворимая</th>
+      <th>Нерастворимая</th>
+      <th>ККал</th>
+      <th>Макс. порций</th>
+      <th>Шаг</th>
+      <th>Действия</th>
+    </tr>
+  </thead>
+  <tbody></tbody>
+</table>
+
+<h2>Добавить продукт</h2>
+<form id="addForm">
+  <input name="Продукт" placeholder="Продукт" required>
+  <input name="Белки" placeholder="Белки" type="number" step="any" required>
+  <input name="Насыщенные" placeholder="Насыщенные" type="number" step="any" required>
+  <input name="НЕнасыщенные" placeholder="НЕнасыщенные" type="number" step="any" required>
+  <input name="Простые" placeholder="Простые" type="number" step="any" required>
+  <input name="Сложные перевариваемые" placeholder="Сложные перевариваемые" type="number" step="any" required>
+  <input name="Растворимая" placeholder="Растворимая" type="number" step="any" required>
+  <input name="Нерастворимая" placeholder="Нерастворимая" type="number" step="any" required>
+  <input name="Макс. порций" placeholder="Макс. порций" type="number" step="any" required>
+  <input name="Шаг" placeholder="Шаг" type="number" step="any" required>
+  <button type="submit">Добавить</button>
+</form>
+
+<script>
+const fieldNames = ["Продукт","Белки","Насыщенные","НЕнасыщенные","Простые","Сложные перевариваемые","Растворимая","Нерастворимая","ККал","Макс. порций","Шаг"];
+const inputFieldNames = fieldNames.filter(f => f !== "ККал");
+
+async function fetchProducts(){
+  const res = await fetch('/api/products');
+  const data = await res.json();
+  const tbody = document.querySelector('#productsTable tbody');
+  tbody.innerHTML = '';
+  data.forEach(p => {
+    const tr = document.createElement('tr');
+    fieldNames.forEach(fn => {
+      const td = document.createElement('td');
+      td.textContent = p[fn];
+      tr.appendChild(td);
+    });
+    const tdAct = document.createElement('td');
+    const btnEdit = document.createElement('button');
+    btnEdit.textContent = 'Редактировать';
+    btnEdit.onclick = () => editProduct(p);
+    const btnDel = document.createElement('button');
+    btnDel.textContent = 'Удалить';
+    btnDel.onclick = () => deleteProduct(p['Продукт']);
+    tdAct.appendChild(btnEdit);
+    tdAct.appendChild(btnDel);
+    tr.appendChild(tdAct);
+    tbody.appendChild(tr);
+  });
+  document.getElementById('count').textContent = data.length;
+}
+
+async function deleteProduct(name){
+  if(!confirm('Удалить ' + name + '?')) return;
+  const res = await fetch('/api/products/' + encodeURIComponent(name), {method:'DELETE'});
+  if(res.ok) fetchProducts();
+}
+
+async function editProduct(prod){
+  const edited = {};
+  for(const fn of inputFieldNames){
+    const val = prompt('Введите ' + fn, prod[fn]);
+    if(val === null || val === ''){ alert('Все поля обязательны'); return; }
+    edited[fn] = val;
+  }
+  const res = await fetch('/api/products/' + encodeURIComponent(prod['Продукт']), {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(edited)
+  });
+  if(res.ok) fetchProducts();
+}
+
+document.getElementById('addForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const formData = new FormData(e.target);
+  const obj = {};
+  for(const fn of inputFieldNames){
+    const val = formData.get(fn);
+    if(!val){ alert('Все поля обязательны'); return; }
+    obj[fn] = val;
+  }
+  const res = await fetch('/api/products', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(obj)
+  });
+  if(res.ok){
+    e.target.reset();
+    fetchProducts();
+  }else{
+    const err = await res.json();
+    alert(err.error || 'Ошибка');
+  }
+});
+
+fetchProducts();
+</script>
+</body>
+</html>
