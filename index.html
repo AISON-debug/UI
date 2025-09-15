@@ -33,29 +33,48 @@
     justify-content: flex-end;
     gap: 8px;
   }
+  #tableControls {
+    margin: 16px 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    align-items: center;
+  }
+  #tableControls label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+  }
 </style>
 </head>
 <body>
 <h1>База продуктов</h1>
-<p>Количество продуктов: <span id="count"></span></p>
 <button id="openAddDialog" type="button">Добавить продукт</button>
-<table id="productsTable">
-  <thead>
-    <tr>
-      <th>Продукт</th>
-      <th>Белки</th>
-      <th>Насыщенные</th>
-      <th>НЕнасыщенные</th>
-      <th>Простые</th>
-      <th>Сложные перевариваемые</th>
-      <th>Растворимая</th>
-      <th>Нерастворимая</th>
-      <th>ККал</th>
-      <th>Действия</th>
-    </tr>
-  </thead>
-  <tbody></tbody>
-</table>
+<div id="tableControls">
+  <label><input type="checkbox" id="toggleExpanded" checked> Развернутая таблица нутриентов</label>
+  <label><input type="checkbox" id="toggleHideDb"> Скрыть базу данных</label>
+</div>
+<div id="databaseSection">
+  <p>Количество продуктов: <span id="count"></span></p>
+  <table id="productsTable">
+    <thead>
+      <tr>
+        <th>Продукт</th>
+        <th>Белки</th>
+        <th>Насыщенные</th>
+        <th>НЕнасыщенные</th>
+        <th>Простые</th>
+        <th>Сложные перевариваемые</th>
+        <th>Растворимая</th>
+        <th>Нерастворимая</th>
+        <th>ККал</th>
+        <th>Действия</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+</div>
 
 <dialog id="addDialog">
   <form id="addForm">
@@ -163,6 +182,44 @@ const editForm = document.getElementById('editForm');
 const cancelEditButton = document.getElementById('cancelEdit');
 const addKcalField = document.getElementById('add-kcal');
 const editKcalField = document.getElementById('edit-kcal');
+const databaseSection = document.getElementById('databaseSection');
+const expandedToggle = document.getElementById('toggleExpanded');
+const hideDbToggle = document.getElementById('toggleHideDb');
+const productsTable = document.getElementById('productsTable');
+const productsTableHead = productsTable ? productsTable.querySelector('thead') : null;
+const productsTableBody = productsTable ? productsTable.querySelector('tbody') : null;
+
+function toNumber(value) {
+  const normalized = value != null ? String(value).replace(',', '.') : '';
+  const numericValue = Number(normalized);
+  return Number.isFinite(numericValue) ? numericValue : 0;
+}
+
+function formatNumber(value) {
+  return Number.isFinite(value) ? value.toFixed(2) : '0.00';
+}
+
+const expandedColumns = fieldNames.map(fn => ({
+  key: fn,
+  label: fn,
+  getValue: (row) => row[fn] ?? ''
+}));
+
+const condensedColumns = [
+  { key: 'Продукт', label: 'Продукт', getValue: (row) => row['Продукт'] ?? '' },
+  { key: 'Белки', label: 'Белки', getValue: (row) => formatNumber(toNumber(row['Белки'])) },
+  { key: 'Жиры', label: 'Жиры', getValue: (row) => formatNumber(toNumber(row['Насыщенные']) + toNumber(row['НЕнасыщенные'])) },
+  { key: 'Углеводы', label: 'Углеводы', getValue: (row) => formatNumber(
+      toNumber(row['Простые']) +
+      toNumber(row['Сложные перевариваемые']) +
+      toNumber(row['Растворимая']) +
+      toNumber(row['Нерастворимая'])
+    )
+  },
+  { key: 'ККал', label: 'ККал', getValue: (row) => row['ККал'] ?? '' }
+];
+
+let productsData = [];
 
 let updateAddKcal = () => {};
 let updateEditKcal = () => {};
@@ -230,6 +287,71 @@ function collectPayload(formData) {
   return {payload};
 }
 
+function getActiveColumns() {
+  if (expandedToggle && !expandedToggle.checked) {
+    return condensedColumns;
+  }
+  return expandedColumns;
+}
+
+function renderProducts() {
+  if (!productsTableHead || !productsTableBody) {
+    return;
+  }
+
+  const columns = getActiveColumns();
+  productsTableHead.innerHTML = '';
+  const headerRow = document.createElement('tr');
+  columns.forEach((column) => {
+    const th = document.createElement('th');
+    th.textContent = column.label;
+    headerRow.appendChild(th);
+  });
+  const actionTh = document.createElement('th');
+  actionTh.textContent = 'Действия';
+  headerRow.appendChild(actionTh);
+  productsTableHead.appendChild(headerRow);
+
+  productsTableBody.innerHTML = '';
+  productsData.forEach((row) => {
+    const tr = document.createElement('tr');
+    columns.forEach((column) => {
+      const td = document.createElement('td');
+      td.textContent = column.getValue(row);
+      tr.appendChild(td);
+    });
+    const actionTd = document.createElement('td');
+    const btnEdit = document.createElement('button');
+    btnEdit.textContent = 'Редактировать';
+    btnEdit.onclick = () => openEditDialog(row);
+    const btnDel = document.createElement('button');
+    btnDel.textContent = 'Удалить';
+    btnDel.onclick = () => deleteProduct(row['Продукт']);
+    actionTd.appendChild(btnEdit);
+    actionTd.appendChild(btnDel);
+    tr.appendChild(actionTd);
+    productsTableBody.appendChild(tr);
+  });
+}
+
+function updateProductCount() {
+  const countEl = document.getElementById('count');
+  if (countEl) {
+    countEl.textContent = productsData.length;
+  }
+}
+
+function applyDatabaseVisibility() {
+  if (!databaseSection) {
+    return;
+  }
+  if (hideDbToggle && hideDbToggle.checked) {
+    databaseSection.style.display = 'none';
+  } else {
+    databaseSection.style.display = '';
+  }
+}
+
 function bindKcalUpdater(form, outputElement) {
   if (!form || !outputElement) {
     return () => {};
@@ -281,31 +403,26 @@ function bindKcalUpdater(form, outputElement) {
 updateAddKcal = bindKcalUpdater(addForm, addKcalField);
 updateEditKcal = bindKcalUpdater(editForm, editKcalField);
 
+if (expandedToggle) {
+  expandedToggle.addEventListener('change', () => {
+    renderProducts();
+  });
+}
+
+if (hideDbToggle) {
+  hideDbToggle.addEventListener('change', () => {
+    applyDatabaseVisibility();
+  });
+}
+
+applyDatabaseVisibility();
+
 async function fetchProducts(){
   const res = await fetch('/api/products');
   const data = await res.json();
-  const tbody = document.querySelector('#productsTable tbody');
-  tbody.innerHTML = '';
-  data.forEach(p => {
-    const tr = document.createElement('tr');
-    fieldNames.forEach(fn => {
-      const td = document.createElement('td');
-      td.textContent = p[fn];
-      tr.appendChild(td);
-    });
-    const tdAct = document.createElement('td');
-    const btnEdit = document.createElement('button');
-    btnEdit.textContent = 'Редактировать';
-    btnEdit.onclick = () => openEditDialog(p);
-    const btnDel = document.createElement('button');
-    btnDel.textContent = 'Удалить';
-    btnDel.onclick = () => deleteProduct(p['Продукт']);
-    tdAct.appendChild(btnEdit);
-    tdAct.appendChild(btnDel);
-    tr.appendChild(tdAct);
-    tbody.appendChild(tr);
-  });
-  document.getElementById('count').textContent = data.length;
+  productsData = Array.isArray(data) ? data : [];
+  renderProducts();
+  updateProductCount();
 }
 
 async function deleteProduct(name){
