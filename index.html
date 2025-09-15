@@ -6,6 +6,9 @@
 <style>
   table { border-collapse: collapse; }
   th, td { border: 1px solid #ccc; padding: 4px; }
+  dialog form { display: flex; flex-direction: column; gap: 8px; }
+  dialog form input { width: 100%; box-sizing: border-box; }
+  dialog form div { display: flex; justify-content: flex-end; gap: 8px; }
 </style>
 </head>
 <body>
@@ -42,10 +45,78 @@
   <button type="submit">Добавить</button>
 </form>
 
+<dialog id="editDialog">
+  <form id="editForm">
+    <h2>Редактировать продукт</h2>
+    <input name="Продукт" placeholder="Продукт" required>
+    <input name="Белки" placeholder="Белки" type="number" step="any" required>
+    <input name="Насыщенные" placeholder="Насыщенные" type="number" step="any" required>
+    <input name="НЕнасыщенные" placeholder="НЕнасыщенные" type="number" step="any" required>
+    <input name="Простые" placeholder="Простые" type="number" step="any" required>
+    <input name="Сложные перевариваемые" placeholder="Сложные перевариваемые" type="number" step="any" required>
+    <input name="Растворимая" placeholder="Растворимая" type="number" step="any" required>
+    <input name="Нерастворимая" placeholder="Нерастворимая" type="number" step="any" required>
+    <div>
+      <button type="submit">Сохранить</button>
+      <button type="button" id="cancelEdit">Отмена</button>
+    </div>
+  </form>
+</dialog>
+
 <script>
 const fieldNames = ["Продукт","Белки","Насыщенные","НЕнасыщенные","Простые","Сложные перевариваемые","Растворимая","Нерастворимая","ККал"];
 const inputFieldNames = fieldNames.filter(f => f !== "ККал");
 const nutrientFieldNames = inputFieldNames.filter(f => f !== "Продукт");
+
+const addForm = document.getElementById('addForm');
+const editDialog = document.getElementById('editDialog');
+const editForm = document.getElementById('editForm');
+const cancelEditButton = document.getElementById('cancelEdit');
+
+function showDialog(dialog) {
+  if (typeof dialog.showModal === 'function') {
+    dialog.showModal();
+  } else {
+    dialog.setAttribute('open', 'true');
+  }
+}
+
+function hideEditDialog() {
+  if (typeof editDialog.close === 'function') {
+    editDialog.close();
+  } else {
+    editDialog.removeAttribute('open');
+  }
+  editForm.reset();
+  delete editForm.dataset.originalName;
+}
+
+function collectPayload(formData) {
+  const payload = {};
+  let nutrientSum = 0;
+  for (const fn of inputFieldNames) {
+    const raw = formData.get(fn);
+    const value = raw !== null ? String(raw).trim() : '';
+    if (value === '') {
+      return {error: 'Все поля обязательны'};
+    }
+    if (!nutrientFieldNames.includes(fn)) {
+      payload[fn] = value;
+      continue;
+    }
+    const normalized = value.replace(',', '.');
+    const numericValue = Number(normalized);
+    if (Number.isNaN(numericValue)) {
+      return {error: 'Некорректное число в поле ' + fn};
+    }
+    nutrientSum += numericValue;
+    payload[fn] = normalized;
+  }
+  if (nutrientSum - 100 > 1e-6) {
+    return {error: 'Сумма значений нутриентов > 100'};
+  }
+  return {payload};
+}
 
 async function fetchProducts(){
   const res = await fetch('/api/products');
@@ -62,7 +133,7 @@ async function fetchProducts(){
     const tdAct = document.createElement('td');
     const btnEdit = document.createElement('button');
     btnEdit.textContent = 'Редактировать';
-    btnEdit.onclick = () => editProduct(p);
+    btnEdit.onclick = () => openEditDialog(p);
     const btnDel = document.createElement('button');
     btnDel.textContent = 'Удалить';
     btnDel.onclick = () => deleteProduct(p['Продукт']);
@@ -80,69 +151,71 @@ async function deleteProduct(name){
   if(res.ok) fetchProducts();
 }
 
-async function editProduct(prod){
-  const edited = {};
-  let nutrientSum = 0;
-  for(const fn of inputFieldNames){
-    const val = prompt('Введите ' + fn, prod[fn] ?? '');
-    if(val === null){ alert('Все поля обязательны'); return; }
-    const trimmed = val.trim();
-    if(trimmed === ''){ alert('Все поля обязательны'); return; }
-    if(!nutrientFieldNames.includes(fn)){
-      edited[fn] = trimmed;
-    }else{
-      const normalized = trimmed.replace(',', '.');
-      const numericValue = Number(normalized);
-      if(Number.isNaN(numericValue)){
-        alert('Некорректное число в поле ' + fn);
-        return;
-      }
-      nutrientSum += numericValue;
-      edited[fn] = normalized;
+function openEditDialog(prod){
+  editForm.dataset.originalName = prod['Продукт'];
+  for (const fn of inputFieldNames) {
+    const input = editForm.querySelector(`[name="${fn}"]`);
+    if (input) {
+      input.value = prod[fn] ?? '';
     }
   }
-  if(nutrientSum - 100 > 1e-6){
-    alert('Сумма значений нутриентов > 100');
-    return;
-  }
-  const res = await fetch('/api/products/' + encodeURIComponent(prod['Продукт']), {
-    method: 'PUT',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(edited)
-  });
-  if(res.ok) fetchProducts();
+  showDialog(editDialog);
 }
 
-document.getElementById('addForm').addEventListener('submit', async e => {
+cancelEditButton.addEventListener('click', () => {
+  hideEditDialog();
+});
+
+if (editDialog) {
+  editDialog.addEventListener('close', () => {
+    editForm.reset();
+    delete editForm.dataset.originalName;
+  });
+}
+
+editForm.addEventListener('submit', async e => {
   e.preventDefault();
-  const formData = new FormData(e.target);
-  const obj = {};
-  let nutrientSum = 0;
-  for(const fn of inputFieldNames){
-    const raw = formData.get(fn);
-    const value = raw !== null ? String(raw).trim() : '';
-    if(value === ''){ alert('Все поля обязательны'); return; }
-    if(!nutrientFieldNames.includes(fn)){
-      obj[fn] = value;
-    }else{
-      const normalized = value.replace(',', '.');
-      const numericValue = Number(normalized);
-      if(Number.isNaN(numericValue)){
-        alert('Некорректное число в поле ' + fn);
-        return;
-      }
-      nutrientSum += numericValue;
-      obj[fn] = normalized;
-    }
+  const result = collectPayload(new FormData(editForm));
+  if (result.error) {
+    alert(result.error);
+    return;
   }
-  if(nutrientSum - 100 > 1e-6){
-    alert('Сумма значений нутриентов > 100');
+  const originalName = editForm.dataset.originalName;
+  if (!originalName) {
+    alert('Не удалось определить редактируемый продукт');
+    return;
+  }
+  const res = await fetch('/api/products/' + encodeURIComponent(originalName), {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(result.payload)
+  });
+  if (res.ok) {
+    hideEditDialog();
+    fetchProducts();
+  } else {
+    let message = 'Ошибка';
+    try {
+      const err = await res.json();
+      message = err.error || message;
+    } catch (err) {
+      // игнорируем проблемы чтения тела ответа
+    }
+    alert(message);
+  }
+});
+
+addForm.addEventListener('submit', async e => {
+  e.preventDefault();
+  const result = collectPayload(new FormData(addForm));
+  if (result.error) {
+    alert(result.error);
     return;
   }
   const res = await fetch('/api/products', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(obj)
+    body: JSON.stringify(result.payload)
   });
   if(res.ok){
     e.target.reset();
