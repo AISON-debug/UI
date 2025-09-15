@@ -24,6 +24,10 @@
     flex: 1;
     box-sizing: border-box;
   }
+  dialog form .field-row input[readonly] {
+    background-color: #f5f5f5;
+    cursor: default;
+  }
   dialog form .form-actions {
     display: flex;
     justify-content: flex-end;
@@ -88,6 +92,10 @@
       <label for="add-insoluble">Нерастворимая</label>
       <input id="add-insoluble" name="Нерастворимая" type="number" step="any" required>
     </div>
+    <div class="field-row">
+      <label for="add-kcal">ККал</label>
+      <input id="add-kcal" type="text" readonly tabindex="-1" value="0.00">
+    </div>
     <div class="form-actions">
       <button type="submit">Добавить</button>
       <button type="button" id="cancelAdd">Отмена</button>
@@ -130,6 +138,10 @@
       <label for="edit-insoluble">Нерастворимая</label>
       <input id="edit-insoluble" name="Нерастворимая" type="number" step="any" required>
     </div>
+    <div class="field-row">
+      <label for="edit-kcal">ККал</label>
+      <input id="edit-kcal" type="text" readonly tabindex="-1" value="0.00">
+    </div>
     <div class="form-actions">
       <button type="submit">Сохранить</button>
       <button type="button" id="cancelEdit">Отмена</button>
@@ -149,6 +161,11 @@ const cancelAddButton = document.getElementById('cancelAdd');
 const editDialog = document.getElementById('editDialog');
 const editForm = document.getElementById('editForm');
 const cancelEditButton = document.getElementById('cancelEdit');
+const addKcalField = document.getElementById('add-kcal');
+const editKcalField = document.getElementById('edit-kcal');
+
+let updateAddKcal = () => {};
+let updateEditKcal = () => {};
 
 function showDialog(dialog) {
   if (!dialog) return;
@@ -169,16 +186,21 @@ function hideAddDialog() {
   if (addForm) {
     addForm.reset();
   }
+  updateAddKcal();
 }
 
 function hideEditDialog() {
+  if (!editDialog) return;
   if (typeof editDialog.close === 'function') {
     editDialog.close();
   } else {
     editDialog.removeAttribute('open');
   }
-  editForm.reset();
-  delete editForm.dataset.originalName;
+  if (editForm) {
+    editForm.reset();
+    delete editForm.dataset.originalName;
+  }
+  updateEditKcal();
 }
 
 function collectPayload(formData) {
@@ -207,6 +229,57 @@ function collectPayload(formData) {
   }
   return {payload};
 }
+
+function bindKcalUpdater(form, outputElement) {
+  if (!form || !outputElement) {
+    return () => {};
+  }
+
+  const getNumericValue = (fieldName) => {
+    const input = form.querySelector(`[name="${fieldName}"]`);
+    if (!input) {
+      return 0;
+    }
+    const raw = input.value != null ? String(input.value).trim() : '';
+    if (!raw) {
+      return 0;
+    }
+    const normalized = raw.replace(',', '.');
+    const numericValue = Number(normalized);
+    return Number.isFinite(numericValue) ? numericValue : 0;
+  };
+
+  const update = () => {
+    const proteins = getNumericValue('Белки');
+    const saturated = getNumericValue('Насыщенные');
+    const unsaturated = getNumericValue('НЕнасыщенные');
+    const simple = getNumericValue('Простые');
+    const complex = getNumericValue('Сложные перевариваемые');
+    const soluble = getNumericValue('Растворимая');
+    const insoluble = getNumericValue('Нерастворимая');
+    const kcal = (
+      proteins * 4 +
+      (saturated + unsaturated) * 9 +
+      (simple + complex) * 4 +
+      (soluble + insoluble) * 1.5
+    );
+    const formatted = Number.isFinite(kcal) ? kcal.toFixed(2) : '0.00';
+    outputElement.value = formatted;
+  };
+
+  form.addEventListener('input', (event) => {
+    if (event && event.target === outputElement) {
+      return;
+    }
+    update();
+  });
+
+  update();
+  return update;
+}
+
+updateAddKcal = bindKcalUpdater(addForm, addKcalField);
+updateEditKcal = bindKcalUpdater(editForm, editKcalField);
 
 async function fetchProducts(){
   const res = await fetch('/api/products');
@@ -249,6 +322,7 @@ function openEditDialog(prod){
       input.value = prod[fn] ?? '';
     }
   }
+  updateEditKcal();
   showDialog(editDialog);
 }
 
@@ -257,6 +331,7 @@ if (openAddButton) {
     if (addForm) {
       addForm.reset();
     }
+    updateAddKcal();
     showDialog(addDialog);
   });
 }
@@ -272,6 +347,7 @@ if (addDialog) {
     if (addForm) {
       addForm.reset();
     }
+    updateAddKcal();
   });
 }
 
@@ -281,8 +357,11 @@ cancelEditButton.addEventListener('click', () => {
 
 if (editDialog) {
   editDialog.addEventListener('close', () => {
-    editForm.reset();
-    delete editForm.dataset.originalName;
+    if (editForm) {
+      editForm.reset();
+      delete editForm.dataset.originalName;
+    }
+    updateEditKcal();
   });
 }
 
