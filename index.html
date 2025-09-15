@@ -46,12 +46,20 @@
     gap: 8px;
     font-weight: 600;
   }
+  #tableControls input[type="search"] {
+    padding: 4px 8px;
+    min-width: 220px;
+  }
 </style>
 </head>
 <body>
 <h1>База продуктов</h1>
 <button id="openAddDialog" type="button">Добавить продукт</button>
 <div id="tableControls">
+  <label class="search-label">
+    Поиск:
+    <input type="search" id="searchInput" placeholder="Например: сахар">
+  </label>
   <label><input type="checkbox" id="toggleExpanded" checked> Развернутая таблица нутриентов</label>
   <label><input type="checkbox" id="toggleHideDb"> Скрыть базу данных</label>
 </div>
@@ -185,6 +193,7 @@ const editKcalField = document.getElementById('edit-kcal');
 const databaseSection = document.getElementById('databaseSection');
 const expandedToggle = document.getElementById('toggleExpanded');
 const hideDbToggle = document.getElementById('toggleHideDb');
+const searchInput = document.getElementById('searchInput');
 const productsTable = document.getElementById('productsTable');
 const productsTableHead = productsTable ? productsTable.querySelector('thead') : null;
 const productsTableBody = productsTable ? productsTable.querySelector('tbody') : null;
@@ -220,6 +229,9 @@ const condensedColumns = [
 ];
 
 let productsData = [];
+let filteredProducts = [];
+let searchTerm = '';
+let activeSearchTerm = '';
 
 let updateAddKcal = () => {};
 let updateEditKcal = () => {};
@@ -294,12 +306,44 @@ function getActiveColumns() {
   return expandedColumns;
 }
 
+function applyFilters() {
+  const normalizedTerm = typeof searchTerm === 'string'
+    ? searchTerm.trim().toLowerCase()
+    : '';
+  activeSearchTerm = normalizedTerm;
+
+  if (!Array.isArray(productsData)) {
+    filteredProducts = [];
+    return;
+  }
+
+  if (!normalizedTerm) {
+    filteredProducts = productsData.slice();
+    return;
+  }
+
+  filteredProducts = productsData.filter((row) => {
+    return fieldNames.some((field) => {
+      const value = row[field];
+      if (value == null) {
+        return false;
+      }
+      return String(value).toLowerCase().includes(normalizedTerm);
+    });
+  });
+}
+
 function renderProducts() {
   if (!productsTableHead || !productsTableBody) {
     return;
   }
 
   const columns = getActiveColumns();
+  const hasSearch = Boolean(activeSearchTerm);
+  const useFiltered = Array.isArray(filteredProducts) && (filteredProducts.length > 0 || hasSearch);
+  const rows = useFiltered
+    ? filteredProducts
+    : (Array.isArray(productsData) ? productsData : []);
   productsTableHead.innerHTML = '';
   const headerRow = document.createElement('tr');
   columns.forEach((column) => {
@@ -313,7 +357,7 @@ function renderProducts() {
   productsTableHead.appendChild(headerRow);
 
   productsTableBody.innerHTML = '';
-  productsData.forEach((row) => {
+  rows.forEach((row) => {
     const tr = document.createElement('tr');
     columns.forEach((column) => {
       const td = document.createElement('td');
@@ -332,12 +376,20 @@ function renderProducts() {
     tr.appendChild(actionTd);
     productsTableBody.appendChild(tr);
   });
+
+  updateProductCount(rows.length);
 }
 
-function updateProductCount() {
+function updateProductCount(visibleCount) {
   const countEl = document.getElementById('count');
   if (countEl) {
-    countEl.textContent = productsData.length;
+    const total = Array.isArray(productsData) ? productsData.length : 0;
+    if (activeSearchTerm) {
+      const visible = typeof visibleCount === 'number' ? visibleCount : 0;
+      countEl.textContent = `${visible} из ${total}`;
+    } else {
+      countEl.textContent = total;
+    }
   }
 }
 
@@ -415,14 +467,27 @@ if (hideDbToggle) {
   });
 }
 
+if (searchInput) {
+  searchInput.addEventListener('input', (event) => {
+    searchTerm = event.target && typeof event.target.value === 'string'
+      ? event.target.value
+      : '';
+    applyFilters();
+    renderProducts();
+  });
+}
+
 applyDatabaseVisibility();
 
 async function fetchProducts(){
   const res = await fetch('/api/products');
   const data = await res.json();
   productsData = Array.isArray(data) ? data : [];
+  if (searchInput) {
+    searchTerm = searchInput.value ?? '';
+  }
+  applyFilters();
   renderProducts();
-  updateProductCount();
 }
 
 async function deleteProduct(name){
