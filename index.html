@@ -23,8 +23,6 @@
       <th>Растворимая</th>
       <th>Нерастворимая</th>
       <th>ККал</th>
-      <th>Макс. порций</th>
-      <th>Шаг</th>
       <th>Действия</th>
     </tr>
   </thead>
@@ -41,14 +39,13 @@
   <input name="Сложные перевариваемые" placeholder="Сложные перевариваемые" type="number" step="any" required>
   <input name="Растворимая" placeholder="Растворимая" type="number" step="any" required>
   <input name="Нерастворимая" placeholder="Нерастворимая" type="number" step="any" required>
-  <input name="Макс. порций" placeholder="Макс. порций" type="number" step="any" required>
-  <input name="Шаг" placeholder="Шаг" type="number" step="any" required>
   <button type="submit">Добавить</button>
 </form>
 
 <script>
-const fieldNames = ["Продукт","Белки","Насыщенные","НЕнасыщенные","Простые","Сложные перевариваемые","Растворимая","Нерастворимая","ККал","Макс. порций","Шаг"];
+const fieldNames = ["Продукт","Белки","Насыщенные","НЕнасыщенные","Простые","Сложные перевариваемые","Растворимая","Нерастворимая","ККал"];
 const inputFieldNames = fieldNames.filter(f => f !== "ККал");
+const nutrientFieldNames = inputFieldNames.filter(f => f !== "Продукт");
 
 async function fetchProducts(){
   const res = await fetch('/api/products');
@@ -85,10 +82,28 @@ async function deleteProduct(name){
 
 async function editProduct(prod){
   const edited = {};
+  let nutrientSum = 0;
   for(const fn of inputFieldNames){
-    const val = prompt('Введите ' + fn, prod[fn]);
-    if(val === null || val === ''){ alert('Все поля обязательны'); return; }
-    edited[fn] = val;
+    const val = prompt('Введите ' + fn, prod[fn] ?? '');
+    if(val === null){ alert('Все поля обязательны'); return; }
+    const trimmed = val.trim();
+    if(trimmed === ''){ alert('Все поля обязательны'); return; }
+    if(!nutrientFieldNames.includes(fn)){
+      edited[fn] = trimmed;
+    }else{
+      const normalized = trimmed.replace(',', '.');
+      const numericValue = Number(normalized);
+      if(Number.isNaN(numericValue)){
+        alert('Некорректное число в поле ' + fn);
+        return;
+      }
+      nutrientSum += numericValue;
+      edited[fn] = normalized;
+    }
+  }
+  if(nutrientSum - 100 > 1e-6){
+    alert('Сумма значений нутриентов > 100');
+    return;
   }
   const res = await fetch('/api/products/' + encodeURIComponent(prod['Продукт']), {
     method: 'PUT',
@@ -102,10 +117,27 @@ document.getElementById('addForm').addEventListener('submit', async e => {
   e.preventDefault();
   const formData = new FormData(e.target);
   const obj = {};
+  let nutrientSum = 0;
   for(const fn of inputFieldNames){
-    const val = formData.get(fn);
-    if(!val){ alert('Все поля обязательны'); return; }
-    obj[fn] = val;
+    const raw = formData.get(fn);
+    const value = raw !== null ? String(raw).trim() : '';
+    if(value === ''){ alert('Все поля обязательны'); return; }
+    if(!nutrientFieldNames.includes(fn)){
+      obj[fn] = value;
+    }else{
+      const normalized = value.replace(',', '.');
+      const numericValue = Number(normalized);
+      if(Number.isNaN(numericValue)){
+        alert('Некорректное число в поле ' + fn);
+        return;
+      }
+      nutrientSum += numericValue;
+      obj[fn] = normalized;
+    }
+  }
+  if(nutrientSum - 100 > 1e-6){
+    alert('Сумма значений нутриентов > 100');
+    return;
   }
   const res = await fetch('/api/products', {
     method: 'POST',
