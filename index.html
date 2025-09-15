@@ -14,6 +14,7 @@
 <body>
 <h1>База продуктов</h1>
 <p>Количество продуктов: <span id="count"></span></p>
+<button id="openAddDialog" type="button">Добавить продукт</button>
 <table id="productsTable">
   <thead>
     <tr>
@@ -32,18 +33,23 @@
   <tbody></tbody>
 </table>
 
-<h2>Добавить продукт</h2>
-<form id="addForm">
-  <input name="Продукт" placeholder="Продукт" required>
-  <input name="Белки" placeholder="Белки" type="number" step="any" required>
-  <input name="Насыщенные" placeholder="Насыщенные" type="number" step="any" required>
-  <input name="НЕнасыщенные" placeholder="НЕнасыщенные" type="number" step="any" required>
-  <input name="Простые" placeholder="Простые" type="number" step="any" required>
-  <input name="Сложные перевариваемые" placeholder="Сложные перевариваемые" type="number" step="any" required>
-  <input name="Растворимая" placeholder="Растворимая" type="number" step="any" required>
-  <input name="Нерастворимая" placeholder="Нерастворимая" type="number" step="any" required>
-  <button type="submit">Добавить</button>
-</form>
+<dialog id="addDialog">
+  <form id="addForm">
+    <h2>Добавить продукт</h2>
+    <input name="Продукт" placeholder="Продукт" required>
+    <input name="Белки" placeholder="Белки" type="number" step="any" required>
+    <input name="Насыщенные" placeholder="Насыщенные" type="number" step="any" required>
+    <input name="НЕнасыщенные" placeholder="НЕнасыщенные" type="number" step="any" required>
+    <input name="Простые" placeholder="Простые" type="number" step="any" required>
+    <input name="Сложные перевариваемые" placeholder="Сложные перевариваемые" type="number" step="any" required>
+    <input name="Растворимая" placeholder="Растворимая" type="number" step="any" required>
+    <input name="Нерастворимая" placeholder="Нерастворимая" type="number" step="any" required>
+    <div>
+      <button type="submit">Добавить</button>
+      <button type="button" id="cancelAdd">Отмена</button>
+    </div>
+  </form>
+</dialog>
 
 <dialog id="editDialog">
   <form id="editForm">
@@ -68,16 +74,32 @@ const fieldNames = ["Продукт","Белки","Насыщенные","НЕн
 const inputFieldNames = fieldNames.filter(f => f !== "ККал");
 const nutrientFieldNames = inputFieldNames.filter(f => f !== "Продукт");
 
+const addDialog = document.getElementById('addDialog');
 const addForm = document.getElementById('addForm');
+const openAddButton = document.getElementById('openAddDialog');
+const cancelAddButton = document.getElementById('cancelAdd');
 const editDialog = document.getElementById('editDialog');
 const editForm = document.getElementById('editForm');
 const cancelEditButton = document.getElementById('cancelEdit');
 
 function showDialog(dialog) {
+  if (!dialog) return;
   if (typeof dialog.showModal === 'function') {
     dialog.showModal();
   } else {
     dialog.setAttribute('open', 'true');
+  }
+}
+
+function hideAddDialog() {
+  if (!addDialog) return;
+  if (typeof addDialog.close === 'function') {
+    addDialog.close();
+  } else {
+    addDialog.removeAttribute('open');
+  }
+  if (addForm) {
+    addForm.reset();
   }
 }
 
@@ -162,6 +184,29 @@ function openEditDialog(prod){
   showDialog(editDialog);
 }
 
+if (openAddButton) {
+  openAddButton.addEventListener('click', () => {
+    if (addForm) {
+      addForm.reset();
+    }
+    showDialog(addDialog);
+  });
+}
+
+if (cancelAddButton) {
+  cancelAddButton.addEventListener('click', () => {
+    hideAddDialog();
+  });
+}
+
+if (addDialog) {
+  addDialog.addEventListener('close', () => {
+    if (addForm) {
+      addForm.reset();
+    }
+  });
+}
+
 cancelEditButton.addEventListener('click', () => {
   hideEditDialog();
 });
@@ -218,7 +263,7 @@ addForm.addEventListener('submit', async e => {
     body: JSON.stringify(result.payload)
   });
   if(res.ok){
-    e.target.reset();
+    hideAddDialog();
     fetchProducts();
   }else{
     const err = await res.json();
