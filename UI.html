@@ -9,6 +9,8 @@
         th, td { border: 1px solid #ccc; padding: 4px; text-align: center; }
         .nutrient-col { display: none; }
         .max-weight { padding: 2px 4px; }
+        .optimized-row { background-color: #ccffcc; }
+        .fix-weight-active { background-color: #ffb6c1; }
     </style>
 </head>
 <body>
@@ -36,6 +38,7 @@
         <thead>
             <tr>
                 <th>Удалить</th>
+                <th>На оптимизацию</th>
                 <th>Продукт</th>
                 <th class="nutrient-col">Белки</th>
                 <th class="nutrient-col">Насыщенные</th>
@@ -49,7 +52,6 @@
                 <th>Шаг</th>
                 <th>Допустимый вес Max.</th>
                 <th>фикс. вес</th>
-                <th>На оптимизацию</th>
             </tr>
         </thead>
         <tbody></tbody>
@@ -88,6 +90,7 @@
             tr.setAttribute('data-name', name);
             tr.innerHTML = `
                 <td><button type="button" class="remove-from-pool">-</button></td>
+                <td><input type="checkbox" class="optimize"></td>
                 <td>${name}</td>
                 <td class="nutrient-col">${data.proteins}</td>
                 <td class="nutrient-col">${data.saturated}</td>
@@ -100,8 +103,7 @@
                 <td><input type="number" class="max-portions" min="0" step="1" value="${defaultMax}"></td>
                 <td><input type="number" class="step" min="0" step="0.1" value="${defaultStep}"></td>
                 <td class="max-weight"><span class="weight-value">0</span></td>
-                <td><input type="checkbox" class="fix-weight"></td>
-                <td><input type="checkbox" class="optimize"></td>
+                <td class="fix-weight-cell"><input type="checkbox" class="fix-weight"></td>
             `;
             poolBody.appendChild(tr);
             updateNutrientVisibility();
@@ -111,6 +113,7 @@
             const stepInput = tr.querySelector('.step');
             const weightValue = tr.querySelector('.weight-value');
             const fixCheckbox = tr.querySelector('.fix-weight');
+            const fixWeightCell = tr.querySelector('.fix-weight-cell');
             const maxWeightCell = tr.querySelector('.max-weight');
             const optimizeCheckbox = tr.querySelector('.optimize');
 
@@ -129,17 +132,31 @@
             stepInput.addEventListener('input', updateWeight);
             updateWeight();
 
-            fixCheckbox.addEventListener('change', function() {
-                maxWeightCell.style.backgroundColor = this.checked ? '#ffb6c1' : '';
-            });
+            function updateFixWeightStyles() {
+                if (fixCheckbox.checked) {
+                    maxWeightCell.classList.add('fix-weight-active');
+                    fixWeightCell.classList.add('fix-weight-active');
+                } else {
+                    maxWeightCell.classList.remove('fix-weight-active');
+                    fixWeightCell.classList.remove('fix-weight-active');
+                }
+            }
 
-            optimizeCheckbox.addEventListener('change', function() {
-                if (this.checked) {
+            fixCheckbox.addEventListener('change', updateFixWeightStyles);
+            updateFixWeightStyles();
+
+            function updateOptimizeState() {
+                if (optimizeCheckbox.checked) {
                     optimizationList.add(name);
+                    tr.classList.add('optimized-row');
                 } else {
                     optimizationList.delete(name);
+                    tr.classList.remove('optimized-row');
                 }
-            });
+            }
+
+            optimizeCheckbox.addEventListener('change', updateOptimizeState);
+            updateOptimizeState();
         }
 
         function removeFromPool(name) {
