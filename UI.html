@@ -8,6 +8,7 @@
         table { border-collapse: collapse; margin-top: 10px; }
         th, td { border: 1px solid #ccc; padding: 4px; text-align: center; }
         .detailed-col { display: table-cell; }
+        .collapsed-only { display: none; }
         .max-weight { padding: 2px 4px; }
         .optimized-row { background-color: #ccffcc; }
         .fix-weight-active { background-color: #ffb6c1; }
@@ -21,10 +22,10 @@
             <tr>
                 <th>Добавить</th>
                 <th>Продукт</th>
-                <th class="summary-col">Белки</th>
-                <th class="summary-col">Жиры</th>
-                <th class="summary-col">Углеводы</th>
-                <th class="summary-col">ККал</th>
+                <th>Белки</th>
+                <th class="collapsed-only">Жиры</th>
+                <th class="collapsed-only">Углеводы</th>
+                <th>ККал</th>
                 <th class="detailed-col">Насыщенные</th>
                 <th class="detailed-col">НЕнасыщенные</th>
                 <th class="detailed-col">Простые</th>
@@ -42,10 +43,10 @@
                 <th>Удалить</th>
                 <th>На оптимизацию</th>
                 <th>Продукт</th>
-                <th class="summary-col">Белки</th>
-                <th class="summary-col">Жиры</th>
-                <th class="summary-col">Углеводы</th>
-                <th class="summary-col">ККал</th>
+                <th>Белки</th>
+                <th class="collapsed-only">Жиры</th>
+                <th class="collapsed-only">Углеводы</th>
+                <th>ККал</th>
                 <th class="detailed-col">Насыщенные</th>
                 <th class="detailed-col">НЕнасыщенные</th>
                 <th class="detailed-col">Простые</th>
@@ -79,6 +80,9 @@
             const expanded = expandedToggle.checked;
             document.querySelectorAll('.detailed-col').forEach(cell => {
                 cell.style.display = expanded ? 'table-cell' : 'none';
+            });
+            document.querySelectorAll('.collapsed-only').forEach(cell => {
+                cell.style.display = expanded ? 'none' : 'table-cell';
             });
         }
 
@@ -119,10 +123,10 @@
                 <td><button type="button" class="remove-from-pool">-</button></td>
                 <td><input type="checkbox" class="optimize"></td>
                 <td>${name}</td>
-                <td class="summary-col">${proteinsDisplay}</td>
-                <td class="summary-col">${fatsDisplay}</td>
-                <td class="summary-col">${carbsDisplay}</td>
-                <td class="summary-col">${kcalDisplay}</td>
+                <td>${proteinsDisplay}</td>
+                <td class="collapsed-only">${fatsDisplay}</td>
+                <td class="collapsed-only">${carbsDisplay}</td>
+                <td>${kcalDisplay}</td>
                 <td class="detailed-col">${saturatedDisplay}</td>
                 <td class="detailed-col">${unsaturatedDisplay}</td>
                 <td class="detailed-col">${simpleDisplay}</td>
@@ -241,10 +245,10 @@
                     tr.innerHTML = `
                         <td><button type="button" class="add-product">+</button></td>
                         <td>${name}</td>
-                        <td class="summary-col">${formatNumber(proteins)}</td>
-                        <td class="summary-col">${formatNumber(fats)}</td>
-                        <td class="summary-col">${formatNumber(carbs)}</td>
-                        <td class="summary-col">${formatNumber(kcal)}</td>
+                        <td>${formatNumber(proteins)}</td>
+                        <td class="collapsed-only">${formatNumber(fats)}</td>
+                        <td class="collapsed-only">${formatNumber(carbs)}</td>
+                        <td>${formatNumber(kcal)}</td>
                         <td class="detailed-col">${formatNumber(saturated)}</td>
                         <td class="detailed-col">${formatNumber(unsaturated)}</td>
                         <td class="detailed-col">${formatNumber(simple)}</td>
