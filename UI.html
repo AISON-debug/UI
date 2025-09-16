@@ -4,31 +4,34 @@
     <meta charset="UTF-8">
     <title>Продукты</title>
     <style>
-        #db { display: none; margin-top: 10px; }
+        #db { margin-top: 10px; }
         table { border-collapse: collapse; margin-top: 10px; }
         th, td { border: 1px solid #ccc; padding: 4px; text-align: center; }
-        .nutrient-col { display: none; }
+        .detailed-col { display: table-cell; }
+        .collapsed-only { display: none; }
         .max-weight { padding: 2px 4px; }
+        .optimized-row { background-color: #ccffcc; }
+        .fix-weight-active { background-color: #ffb6c1; }
     </style>
 </head>
 <body>
-    <label><input type="checkbox" id="toggle-db"> Показать ДБ</label>
-    <label><input type="checkbox" id="toggle-nutrients"> Показать КБЖУ+</label>
+    <label><input type="checkbox" id="toggle-expanded" checked> Развернутая таблица нутриентов</label>
+    <label><input type="checkbox" id="toggle-hide-db"> Скрыть базу данных</label>
     <table id="db">
         <thead>
             <tr>
-                <th>Выбрать</th>
+                <th>Добавить</th>
                 <th>Продукт</th>
-                <th class="nutrient-col">Белки</th>
-                <th class="nutrient-col">Насыщенные</th>
-                <th class="nutrient-col">НЕнасыщенные</th>
-                <th class="nutrient-col">Простые</th>
-                <th class="nutrient-col">Сложные</th>
-                <th class="nutrient-col">Растворимая</th>
-                <th class="nutrient-col">Нерастворимая</th>
-                <th class="nutrient-col">ККал</th>
-                <th>Макс. порций</th>
-                <th>Шаг</th>
+                <th>Белки</th>
+                <th class="collapsed-only">Жиры</th>
+                <th class="collapsed-only">Углеводы</th>
+                <th>ККал</th>
+                <th class="detailed-col">Насыщенные</th>
+                <th class="detailed-col">НЕнасыщенные</th>
+                <th class="detailed-col">Простые</th>
+                <th class="detailed-col">Сложные</th>
+                <th class="detailed-col">Растворимая</th>
+                <th class="detailed-col">Нерастворимая</th>
             </tr>
         </thead>
         <tbody></tbody>
@@ -37,20 +40,23 @@
     <table id="pool">
         <thead>
             <tr>
+                <th>Удалить</th>
+                <th>На оптимизацию</th>
                 <th>Продукт</th>
-                <th class="nutrient-col">Белки</th>
-                <th class="nutrient-col">Насыщенные</th>
-                <th class="nutrient-col">НЕнасыщенные</th>
-                <th class="nutrient-col">Простые</th>
-                <th class="nutrient-col">Сложные</th>
-                <th class="nutrient-col">Растворимая</th>
-                <th class="nutrient-col">Нерастворимая</th>
-                <th class="nutrient-col">ККал</th>
+                <th>Белки</th>
+                <th class="collapsed-only">Жиры</th>
+                <th class="collapsed-only">Углеводы</th>
+                <th>ККал</th>
+                <th class="detailed-col">Насыщенные</th>
+                <th class="detailed-col">НЕнасыщенные</th>
+                <th class="detailed-col">Простые</th>
+                <th class="detailed-col">Сложные</th>
+                <th class="detailed-col">Растворимая</th>
+                <th class="detailed-col">Нерастворимая</th>
                 <th>Макс. порций</th>
                 <th>Шаг</th>
                 <th>Допустимый вес Max.</th>
                 <th>фикс. вес</th>
-                <th>На оптимизацию</th>
             </tr>
         </thead>
         <tbody></tbody>
@@ -63,73 +69,127 @@
         const poolBody = poolTable.querySelector('tbody');
         const products = {};
         const optimizationList = new Set();
+        const expandedToggle = document.getElementById('toggle-expanded');
+        const hideDbToggle = document.getElementById('toggle-hide-db');
+
+        function formatNumber(value) {
+            return Number.isFinite(value) ? parseFloat(value.toFixed(2)).toString() : '0';
+        }
 
         function updateNutrientVisibility() {
-            const show = document.getElementById('toggle-nutrients').checked;
-            document.querySelectorAll('.nutrient-col').forEach(cell => {
-                cell.style.display = show ? 'table-cell' : 'none';
+            const expanded = expandedToggle.checked;
+            document.querySelectorAll('.detailed-col').forEach(cell => {
+                cell.style.display = expanded ? 'table-cell' : 'none';
+            });
+            document.querySelectorAll('.collapsed-only').forEach(cell => {
+                cell.style.display = expanded ? 'none' : 'table-cell';
             });
         }
 
-        document.getElementById('toggle-db').addEventListener('change', function() {
-            dbTable.style.display = this.checked ? 'table' : 'none';
-        });
+        function updateDbVisibility() {
+            dbTable.style.display = hideDbToggle.checked ? 'none' : 'table';
+        }
+
+        expandedToggle.addEventListener('change', updateNutrientVisibility);
+        hideDbToggle.addEventListener('change', updateDbVisibility);
+
+        updateNutrientVisibility();
+        updateDbVisibility();
 
         function addToPool(name) {
             const existing = document.querySelector('#pool tbody tr[data-name="' + name + '"]');
-            if (!existing) {
-                const data = products[name] || {};
-                const tr = document.createElement('tr');
-                tr.setAttribute('data-name', name);
-                tr.innerHTML = `
-                    <td>${name}</td>
-                    <td class="nutrient-col">${data.proteins}</td>
-                    <td class="nutrient-col">${data.saturated}</td>
-                    <td class="nutrient-col">${data.unsaturated}</td>
-                    <td class="nutrient-col">${data.simple}</td>
-                    <td class="nutrient-col">${data.complex}</td>
-                    <td class="nutrient-col">${data.soluble}</td>
-                    <td class="nutrient-col">${data.insoluble}</td>
-                    <td class="nutrient-col">${data.kcal}</td>
-                    <td><input type="number" class="max-portions" min="0" step="1" value="${data.defaultMax || 0}"></td>
-                    <td><input type="number" class="step" min="0" step="0.1" value="${data.defaultStep || 0}"></td>
-                    <td class="max-weight"><span class="weight-value">0</span></td>
-                    <td><input type="checkbox" class="fix-weight"></td>
-                    <td><input type="checkbox" class="optimize"></td>
-                `;
-                poolBody.appendChild(tr);
-                updateNutrientVisibility();
-
-                const maxPortionsInput = tr.querySelector('.max-portions');
-                const stepInput = tr.querySelector('.step');
-                const weightValue = tr.querySelector('.weight-value');
-                const fixCheckbox = tr.querySelector('.fix-weight');
-                const maxWeightCell = tr.querySelector('.max-weight');
-                const optimizeCheckbox = tr.querySelector('.optimize');
-
-                function updateWeight() {
-                    const maxPortions = parseFloat(maxPortionsInput.value) || 0;
-                    const step = parseFloat(stepInput.value) || 0;
-                    const weight = maxPortions * step;
-                    weightValue.textContent = weight.toFixed(1);
-                }
-
-                maxPortionsInput.addEventListener('input', updateWeight);
-                stepInput.addEventListener('input', updateWeight);
-                updateWeight();
-
-                fixCheckbox.addEventListener('change', function() {
-                    maxWeightCell.style.backgroundColor = this.checked ? '#ffb6c1' : '';
-                });
-
-                optimizeCheckbox.addEventListener('change', function() {
-                    if (this.checked) {
-                        optimizationList.add(name);
-                    } else {
-                        optimizationList.delete(name);
-                    }
-                });
+            if (existing) {
+                alert('Продукт уже в пуле');
+                return;
             }
+
+            const data = products[name] || {};
+            const defaultMax = 10;
+            const defaultStep = 10;
+            const tr = document.createElement('tr');
+            tr.setAttribute('data-name', name);
+            const proteinsDisplay = formatNumber(data.proteins || 0);
+            const fatsDisplay = formatNumber(data.fats || 0);
+            const carbsDisplay = formatNumber(data.carbs || 0);
+            const kcalDisplay = formatNumber(data.kcal || 0);
+            const saturatedDisplay = formatNumber(data.saturated || 0);
+            const unsaturatedDisplay = formatNumber(data.unsaturated || 0);
+            const simpleDisplay = formatNumber(data.simple || 0);
+            const complexDisplay = formatNumber(data.complex || 0);
+            const solubleDisplay = formatNumber(data.soluble || 0);
+            const insolubleDisplay = formatNumber(data.insoluble || 0);
+
+            tr.innerHTML = `
+                <td><button type="button" class="remove-from-pool">-</button></td>
+                <td><input type="checkbox" class="optimize"></td>
+                <td>${name}</td>
+                <td>${proteinsDisplay}</td>
+                <td class="collapsed-only">${fatsDisplay}</td>
+                <td class="collapsed-only">${carbsDisplay}</td>
+                <td>${kcalDisplay}</td>
+                <td class="detailed-col">${saturatedDisplay}</td>
+                <td class="detailed-col">${unsaturatedDisplay}</td>
+                <td class="detailed-col">${simpleDisplay}</td>
+                <td class="detailed-col">${complexDisplay}</td>
+                <td class="detailed-col">${solubleDisplay}</td>
+                <td class="detailed-col">${insolubleDisplay}</td>
+                <td><input type="number" class="max-portions" min="0" step="1" value="${defaultMax}"></td>
+                <td><input type="number" class="step" min="0" step="0.1" value="${defaultStep}"></td>
+                <td class="max-weight"><span class="weight-value">0</span></td>
+                <td class="fix-weight-cell"><input type="checkbox" class="fix-weight"></td>
+            `;
+            poolBody.appendChild(tr);
+            updateNutrientVisibility();
+
+            const removeButton = tr.querySelector('.remove-from-pool');
+            const maxPortionsInput = tr.querySelector('.max-portions');
+            const stepInput = tr.querySelector('.step');
+            const weightValue = tr.querySelector('.weight-value');
+            const fixCheckbox = tr.querySelector('.fix-weight');
+            const fixWeightCell = tr.querySelector('.fix-weight-cell');
+            const maxWeightCell = tr.querySelector('.max-weight');
+            const optimizeCheckbox = tr.querySelector('.optimize');
+
+            function updateWeight() {
+                const maxPortions = parseFloat(maxPortionsInput.value) || 0;
+                const step = parseFloat(stepInput.value) || 0;
+                const weight = maxPortions * step;
+                weightValue.textContent = weight.toFixed(1);
+            }
+
+            removeButton.addEventListener('click', function() {
+                removeFromPool(name);
+            });
+
+            maxPortionsInput.addEventListener('input', updateWeight);
+            stepInput.addEventListener('input', updateWeight);
+            updateWeight();
+
+            function updateFixWeightStyles() {
+                if (fixCheckbox.checked) {
+                    maxWeightCell.classList.add('fix-weight-active');
+                    fixWeightCell.classList.add('fix-weight-active');
+                } else {
+                    maxWeightCell.classList.remove('fix-weight-active');
+                    fixWeightCell.classList.remove('fix-weight-active');
+                }
+            }
+
+            fixCheckbox.addEventListener('change', updateFixWeightStyles);
+            updateFixWeightStyles();
+
+            function updateOptimizeState() {
+                if (optimizeCheckbox.checked) {
+                    optimizationList.add(name);
+                    tr.classList.add('optimized-row');
+                } else {
+                    optimizationList.delete(name);
+                    tr.classList.remove('optimized-row');
+                }
+            }
+
+            optimizeCheckbox.addEventListener('change', updateOptimizeState);
+            updateOptimizeState();
         }
 
         function removeFromPool(name) {
@@ -144,54 +204,68 @@
             .then(response => response.text())
             .then(text => {
                 const lines = text.trim().split(/\r?\n/);
-                lines.splice(0, 2); // remove header lines
+                if (!lines.length) {
+                    return;
+                }
+                lines.shift();
                 lines.forEach(line => {
                     if (!line) return;
-                    const cols = line.split(',');
-                    const name = cols[0];
+                    const rawCols = line.split(',');
+                    if (rawCols.length < 9) return;
+                    const cols = rawCols.map(value => value.trim());
+                    const rawName = cols[0] || '';
+                    const name = rawName.replace(/^\ufeff/, '');
+                    if (!name) return;
+
+                    const proteins = parseFloat(cols[1]) || 0;
+                    const saturated = parseFloat(cols[2]) || 0;
+                    const unsaturated = parseFloat(cols[3]) || 0;
+                    const simple = parseFloat(cols[4]) || 0;
+                    const complex = parseFloat(cols[5]) || 0;
+                    const soluble = parseFloat(cols[6]) || 0;
+                    const insoluble = parseFloat(cols[7]) || 0;
+                    const kcal = parseFloat(cols[8]) || 0;
+                    const fats = saturated + unsaturated;
+                    const carbs = simple + complex + soluble + insoluble;
+
                     products[name] = {
-                        proteins: parseFloat(cols[1]),
-                        saturated: parseFloat(cols[2]),
-                        unsaturated: parseFloat(cols[3]),
-                        simple: parseFloat(cols[4]),
-                        complex: parseFloat(cols[5]),
-                        soluble: parseFloat(cols[6]),
-                        insoluble: parseFloat(cols[7]),
-                        kcal: parseFloat(cols[8]),
-                        defaultMax: parseFloat(cols[9]),
-                        defaultStep: parseFloat(cols[10])
+                        proteins,
+                        saturated,
+                        unsaturated,
+                        simple,
+                        complex,
+                        soluble,
+                        insoluble,
+                        kcal,
+                        fats,
+                        carbs
                     };
 
                     const tr = document.createElement('tr');
                     tr.innerHTML = `
-                        <td><input type="checkbox" class="select-product"></td>
+                        <td><button type="button" class="add-product">+</button></td>
                         <td>${name}</td>
-                        <td class="nutrient-col">${cols[1]}</td>
-                        <td class="nutrient-col">${cols[2]}</td>
-                        <td class="nutrient-col">${cols[3]}</td>
-                        <td class="nutrient-col">${cols[4]}</td>
-                        <td class="nutrient-col">${cols[5]}</td>
-                        <td class="nutrient-col">${cols[6]}</td>
-                        <td class="nutrient-col">${cols[7]}</td>
-                        <td class="nutrient-col">${cols[8]}</td>
-                        <td>${cols[9]}</td>
-                        <td>${cols[10]}</td>
+                        <td>${formatNumber(proteins)}</td>
+                        <td class="collapsed-only">${formatNumber(fats)}</td>
+                        <td class="collapsed-only">${formatNumber(carbs)}</td>
+                        <td>${formatNumber(kcal)}</td>
+                        <td class="detailed-col">${formatNumber(saturated)}</td>
+                        <td class="detailed-col">${formatNumber(unsaturated)}</td>
+                        <td class="detailed-col">${formatNumber(simple)}</td>
+                        <td class="detailed-col">${formatNumber(complex)}</td>
+                        <td class="detailed-col">${formatNumber(soluble)}</td>
+                        <td class="detailed-col">${formatNumber(insoluble)}</td>
                     `;
                     dbBody.appendChild(tr);
                     updateNutrientVisibility();
 
-                    const checkbox = tr.querySelector('.select-product');
-                    checkbox.addEventListener('change', function() {
-                        if (this.checked) {
-                            addToPool(name);
-                        } else {
-                            removeFromPool(name);
-                        }
+                    const addButton = tr.querySelector('.add-product');
+                    addButton.addEventListener('click', function() {
+                        addToPool(name);
                     });
                 });
             });
 
-        document.getElementById('toggle-nutrients').addEventListener('change', updateNutrientVisibility);
     </script>
 </body>
 </html>
