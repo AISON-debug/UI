@@ -12,6 +12,31 @@
         .max-weight { padding: 2px 4px; }
         .optimized-row { background-color: #ccffcc; }
         .fix-weight-active { background-color: #ffb6c1; }
+        #optimization-controls {
+            margin-top: 12px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            align-items: center;
+        }
+        #optimization-controls .optimization-field {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        #optimization-controls input[type="number"] {
+            width: 90px;
+            padding: 2px 4px;
+        }
+        #optimization-results {
+            margin-top: 10px;
+        }
+        #optimization-results.hidden {
+            display: none;
+        }
+        #optimization-results .result-row {
+            margin-top: 4px;
+        }
     </style>
 </head>
 <body>
@@ -61,6 +86,22 @@
         </thead>
         <tbody></tbody>
     </table>
+    <div id="optimization-controls">
+        <div class="optimization-field">
+            <label for="residual-share">Доля остатка</label>
+            <input type="number" id="residual-share" min="0" max="1" step="0.05" value="0.5">
+        </div>
+        <div class="optimization-field">
+            <label for="run-count">Количество прогонов</label>
+            <input type="number" id="run-count" min="1" step="1" value="10">
+        </div>
+        <button type="button" id="run-optimization">Рассчитать оптимальный рацион</button>
+    </div>
+    <div id="optimization-results" class="hidden">
+        <div class="result-row"><strong>RMSE:</strong> <span id="rmse-result">-</span></div>
+        <div class="result-row"><strong>Доля остатка:</strong> <span id="alpha-result">-</span></div>
+        <div class="result-row"><strong>Прогон:</strong> <span id="run-result">-</span></div>
+    </div>
 
     <script>
         const dbTable = document.getElementById('db');
@@ -71,9 +112,171 @@
         const optimizationList = new Set();
         const expandedToggle = document.getElementById('toggle-expanded');
         const hideDbToggle = document.getElementById('toggle-hide-db');
+        const residualInput = document.getElementById('residual-share');
+        const runCountInput = document.getElementById('run-count');
+        const runOptimizationButton = document.getElementById('run-optimization');
+        const optimizationResults = document.getElementById('optimization-results');
+        const rmseResult = document.getElementById('rmse-result');
+        const alphaResult = document.getElementById('alpha-result');
+        const runResult = document.getElementById('run-result');
+        const NUTRIENT_KEYS = ['proteins', 'saturated', 'unsaturated', 'simple', 'complex', 'soluble', 'insoluble'];
 
         function formatNumber(value) {
             return Number.isFinite(value) ? parseFloat(value.toFixed(2)).toString() : '0';
+        }
+
+        function clampFraction(value) {
+            if (!Number.isFinite(value)) {
+                return 0;
+            }
+            if (value < 0) {
+                return 0;
+            }
+            if (value > 1) {
+                return 1;
+            }
+            return value;
+        }
+
+        function resetOptimizationResults() {
+            optimizationResults.classList.add('hidden');
+            rmseResult.textContent = '-';
+            alphaResult.textContent = '-';
+            runResult.textContent = '-';
+        }
+
+        function computeRmseFromTotals(totals, target) {
+            const diffs = [];
+            NUTRIENT_KEYS.forEach(key => {
+                const totalValue = totals[key] || 0;
+                const targetValue = target[key] || 0;
+                diffs.push(totalValue - targetValue);
+            });
+            const totalCalories = totals.calories || 0;
+            const targetCalories = target.calories || 0;
+            diffs.push(totalCalories - targetCalories);
+            if (!diffs.length) {
+                return 0;
+            }
+            const sumSquares = diffs.reduce((acc, value) => acc + value * value, 0);
+            return Math.sqrt(sumSquares / diffs.length);
+        }
+
+        function gatherOptimizationProducts() {
+            const selected = [];
+            poolBody.querySelectorAll('tr').forEach(row => {
+                const optimizeCheckbox = row.querySelector('.optimize');
+                if (!optimizeCheckbox || !optimizeCheckbox.checked) {
+                    return;
+                }
+                const name = row.getAttribute('data-name');
+                if (!name || !products[name]) {
+                    return;
+                }
+                const stepInput = row.querySelector('.step');
+                const maxPortionsInput = row.querySelector('.max-portions');
+                const fixCheckbox = row.querySelector('.fix-weight');
+                const stepValue = parseFloat(stepInput && stepInput.value) || 0;
+                const maxPortionsValue = parseFloat(maxPortionsInput && maxPortionsInput.value) || 0;
+                const maxWeight = stepValue * maxPortionsValue;
+                selected.push({
+                    name,
+                    maxWeight,
+                    fixWeight: Boolean(fixCheckbox && fixCheckbox.checked),
+                    nutrients: {
+                        proteins: products[name].proteins || 0,
+                        saturated: products[name].saturated || 0,
+                        unsaturated: products[name].unsaturated || 0,
+                        simple: products[name].simple || 0,
+                        complex: products[name].complex || 0,
+                        soluble: products[name].soluble || 0,
+                        insoluble: products[name].insoluble || 0,
+                        kcal: products[name].kcal || 0
+                    }
+                });
+            });
+            return selected;
+        }
+
+        function runDietOptimization(selectedProducts, baseAlpha, runCount) {
+            if (!selectedProducts.length || runCount <= 0) {
+                return null;
+            }
+            const alphaClamped = clampFraction(baseAlpha);
+            const maxTotals = {};
+            NUTRIENT_KEYS.forEach(key => {
+                maxTotals[key] = 0;
+            });
+            maxTotals.calories = 0;
+            selectedProducts.forEach(item => {
+                const weightFactor = (item.maxWeight || 0) / 100;
+                NUTRIENT_KEYS.forEach(key => {
+                    const nutrientValue = item.nutrients[key] || 0;
+                    maxTotals[key] += nutrientValue * weightFactor;
+                });
+                maxTotals.calories += (item.nutrients.kcal || 0) * weightFactor;
+            });
+            let bestResult = {
+                rmse: Number.POSITIVE_INFINITY,
+                run: 0,
+                alpha: 0,
+                totals: null
+            };
+            const iterations = Math.max(1, runCount);
+            for (let index = 0; index < iterations; index += 1) {
+                const iterationNumber = index + 1;
+                const alphaCandidate = iterations > 1
+                    ? alphaClamped * (iterationNumber / iterations)
+                    : alphaClamped;
+                const target = {};
+                NUTRIENT_KEYS.forEach(key => {
+                    target[key] = maxTotals[key] * alphaCandidate;
+                });
+                target.calories = maxTotals.calories * alphaCandidate;
+                const totals = {};
+                NUTRIENT_KEYS.forEach(key => {
+                    totals[key] = 0;
+                });
+                totals.calories = 0;
+                selectedProducts.forEach(item => {
+                    const maxWeight = item.maxWeight || 0;
+                    if (maxWeight <= 0) {
+                        return;
+                    }
+                    const fraction = item.fixWeight ? alphaCandidate : Math.random() * alphaCandidate;
+                    const weight = maxWeight * fraction;
+                    const portionFactor = weight / 100;
+                    NUTRIENT_KEYS.forEach(key => {
+                        const nutrientValue = item.nutrients[key] || 0;
+                        totals[key] += nutrientValue * portionFactor;
+                    });
+                    totals.calories += (item.nutrients.kcal || 0) * portionFactor;
+                });
+                const rmse = computeRmseFromTotals(totals, target);
+                if (rmse < bestResult.rmse) {
+                    bestResult = {
+                        rmse,
+                        run: iterationNumber,
+                        alpha: alphaCandidate,
+                        totals
+                    };
+                }
+            }
+            if (!Number.isFinite(bestResult.rmse)) {
+                bestResult.rmse = 0;
+            }
+            return bestResult;
+        }
+
+        function displayOptimizationResult(result) {
+            if (!result) {
+                resetOptimizationResults();
+                return;
+            }
+            rmseResult.textContent = result.rmse.toFixed(4);
+            alphaResult.textContent = result.alpha.toFixed(4);
+            runResult.textContent = result.run.toString();
+            optimizationResults.classList.remove('hidden');
         }
 
         function updateNutrientVisibility() {
@@ -155,6 +358,7 @@
                 const step = parseFloat(stepInput.value) || 0;
                 const weight = maxPortions * step;
                 weightValue.textContent = weight.toFixed(1);
+                resetOptimizationResults();
             }
 
             removeButton.addEventListener('click', function() {
@@ -173,6 +377,7 @@
                     maxWeightCell.classList.remove('fix-weight-active');
                     fixWeightCell.classList.remove('fix-weight-active');
                 }
+                resetOptimizationResults();
             }
 
             fixCheckbox.addEventListener('change', updateFixWeightStyles);
@@ -186,6 +391,7 @@
                     optimizationList.delete(name);
                     tr.classList.remove('optimized-row');
                 }
+                resetOptimizationResults();
             }
 
             optimizeCheckbox.addEventListener('change', updateOptimizeState);
@@ -198,7 +404,28 @@
                 tr.remove();
             }
             optimizationList.delete(name);
+            resetOptimizationResults();
         }
+
+        runOptimizationButton.addEventListener('click', () => {
+            const baseAlpha = parseFloat(residualInput.value);
+            if (!Number.isFinite(baseAlpha) || baseAlpha < 0) {
+                alert('Введите корректное значение для "Доля остатка".');
+                return;
+            }
+            const runCount = Math.floor(parseFloat(runCountInput.value));
+            if (!Number.isFinite(runCount) || runCount <= 0) {
+                alert('Количество прогонов должно быть положительным целым числом.');
+                return;
+            }
+            const selectedProducts = gatherOptimizationProducts();
+            if (!selectedProducts.length) {
+                alert('Выберите продукты для оптимизации.');
+                return;
+            }
+            const result = runDietOptimization(selectedProducts, baseAlpha, runCount);
+            displayOptimizationResult(result);
+        });
 
         fetch('Nutrients%20DB.csv')
             .then(response => response.text())
