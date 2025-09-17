@@ -1,41 +1,51 @@
+import csv
+import math
+import random
+from dataclasses import dataclass
+from typing import Dict, Iterable, List, Optional
+
 import numpy as np
 
 
-def compute_calories(nutrients):
-    """Calculate calories from macronutrient amounts.
+NUTRIENT_ORDER: tuple[str, ...] = (
+    'proteins',
+    'saturated',
+    'unsaturated',
+    'simple',
+    'complex',
+    'soluble',
+    'insoluble',
+)
+DEFAULT_CSV_PATH = 'Nutrients DB.csv'
 
-    Parameters
-    ----------
-    nutrients : array-like
-        Sequence containing grams of protein, fat and carbohydrates respectively.
 
-    Returns
-    -------
-    float
-        Calculated caloric value.
-    """
+@dataclass
+class OptimizationProduct:
+    """Представление продукта для расчёта рациона."""
+
+    name: str
+    nutrients: Dict[str, float]
+    step: float
+    max_weight: float
+    fix_weight: bool = False
+    fixed_weight: float = 0.0
+
+    def resolved_fixed_weight(self) -> float:
+        """Вернуть вес для фиксированного продукта, ограниченный допустимыми границами."""
+        if not self.fix_weight or self.max_weight <= 0:
+            return 0.0
+        weight = self.fixed_weight if self.fixed_weight > 0 else self.max_weight
+        return min(self.max_weight, max(0.0, weight))
+
+
+def compute_calories(nutrients: Iterable[float]) -> float:
+    """Calculate calories from macronutrient amounts."""
     protein, fat, carbs = nutrients
     return protein * 4 + fat * 9 + carbs * 4
 
 
-def rmse(predicted, target, calorie_weight=None):
-    """Calculate root mean squared error between vectors.
-
-    By default only gram based nutrients are compared.  When ``calorie_weight``
-    is provided the difference in calories is appended to the error vector and
-    scaled by the weight to avoid calories dominating the RMSE.
-
-    Parameters
-    ----------
-    predicted : array-like
-        Predicted nutrient values in grams.
-    target : array-like
-        Target nutrient values in grams.
-    calorie_weight : float, optional
-        When provided, include the difference in calories in the RMSE and scale
-        it by this weight so that its impact is comparable with gram based
-        nutrients.
-    """
+def rmse(predicted: Iterable[float], target: Iterable[float], calorie_weight: Optional[float] = None) -> float:
+    """Calculate root mean squared error between vectors."""
     predicted = np.array(predicted, dtype=float)
     target = np.array(target, dtype=float)
 
@@ -49,19 +59,234 @@ def rmse(predicted, target, calorie_weight=None):
     return np.sqrt(np.mean(diffs ** 2))
 
 
-def main():
-    # Example: protein, fat, carbs in grams
-    predicted = [25, 10, 40]
-    target = [30, 8, 50]
-
-    # Previously calories were appended to ``target`` which distorted RMSE.
-    # Now RMSE is calculated strictly on gram based nutrients.
-    print(f"RMSE without calories: {rmse(predicted, target):.2f}")
-
-    # Caloric contribution can optionally be included using a small weight to
-    # normalise it relative to gram based nutrients.
-    print(f"RMSE with calories (weight 0.01): {rmse(predicted, target, calorie_weight=0.01):.2f}")
+def _parse_float(value: Optional[str]) -> float:
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
-if __name__ == "__main__":
+def load_product_database(csv_path: str = DEFAULT_CSV_PATH) -> Dict[str, Dict[str, float]]:
+    """Загрузить базу продуктов из CSV и вернуть словарь с ключами нутриентов."""
+    products: Dict[str, Dict[str, float]] = {}
+    with open(csv_path, newline='', encoding='utf-8') as handle:
+        reader = csv.DictReader(handle)
+        for row in reader:
+            raw_name = (row.get('Продукт') or '').strip().replace('\ufeff', '')
+            if not raw_name:
+                continue
+            products[raw_name] = {
+                'proteins': _parse_float(row.get('Белки')),
+                'saturated': _parse_float(row.get('Насыщенные')),
+                'unsaturated': _parse_float(row.get('НЕнасыщенные')),
+                'simple': _parse_float(row.get('Простые')),
+                'complex': _parse_float(row.get('Сложные перевариваемые')),
+                'soluble': _parse_float(row.get('Растворимая')),
+                'insoluble': _parse_float(row.get('Нерастворимая')),
+                'kcal': _parse_float(row.get('ККал')),
+            }
+    return products
+
+
+def _quantize_weight(weight: float, step: float, max_weight: float) -> float:
+    if weight <= 0:
+        return 0.0
+    if step <= 0:
+        return min(weight, max_weight)
+    steps = round(weight / step)
+    quantized = steps * step
+    if quantized > max_weight:
+        quantized = math.floor(max_weight / step) * step
+    return max(0.0, min(quantized, max_weight))
+
+
+def _normalise_targets(raw: Dict[str, float]) -> Dict[str, float]:
+    result = {}
+    for key in (*NUTRIENT_ORDER, 'calories'):
+        try:
+            result[key] = float(raw.get(key, 0) or 0)
+        except (TypeError, ValueError):
+            result[key] = 0.0
+    return result
+
+
+def _prepare_product(entry: Dict[str, object], product_db: Dict[str, Dict[str, float]]) -> OptimizationProduct:
+    if not isinstance(entry, dict):
+        raise ValueError('Некорректные данные продукта.')
+    name = str(entry.get('name') or '').strip()
+    if not name:
+        raise ValueError('Не указано название продукта.')
+
+    nutrients_data = entry.get('nutrients')
+    if isinstance(nutrients_data, dict):
+        nutrients = {
+            'proteins': _parse_float(nutrients_data.get('proteins')),
+            'saturated': _parse_float(nutrients_data.get('saturated')),
+            'unsaturated': _parse_float(nutrients_data.get('unsaturated')),
+            'simple': _parse_float(nutrients_data.get('simple')),
+            'complex': _parse_float(nutrients_data.get('complex')),
+            'soluble': _parse_float(nutrients_data.get('soluble')),
+            'insoluble': _parse_float(nutrients_data.get('insoluble')),
+            'kcal': _parse_float(nutrients_data.get('kcal')),
+        }
+    else:
+        if name not in product_db:
+            raise ValueError(f'Продукт "{name}" отсутствует в базе.')
+        nutrients = product_db[name]
+
+    step = _parse_float(entry.get('step'))
+    max_weight = max(0.0, _parse_float(entry.get('max_weight')))
+    fix_weight = bool(entry.get('fix_weight'))
+    fixed_weight = _parse_float(entry.get('fixed_weight'))
+    if fix_weight and fixed_weight <= 0:
+        fixed_weight = max_weight
+
+    return OptimizationProduct(
+        name=name,
+        nutrients=nutrients,
+        step=max(0.0, step),
+        max_weight=max_weight,
+        fix_weight=fix_weight,
+        fixed_weight=fixed_weight,
+    )
+
+
+def optimise_diet(
+    products: List[OptimizationProduct],
+    targets: Dict[str, float],
+    run_count: int,
+    residual_share: float,
+    calorie_weight: float = 0.01,
+) -> Dict[str, object]:
+    if not products:
+        raise ValueError('Список продуктов для оптимизации пуст.')
+    if run_count <= 0:
+        raise ValueError('Количество прогонов должно быть положительным.')
+
+    target_vector = np.array([targets.get(key, 0.0) for key in NUTRIENT_ORDER], dtype=float)
+    target_calories = float(targets.get('calories', 0.0))
+    residual_share = max(0.0, min(1.0, float(residual_share)))
+
+    best_score = math.inf
+    best_run = 0
+    best_alpha = 0.0
+    best_weights: List[float] = []
+    best_totals: Dict[str, float] = {}
+
+    for run_index in range(1, run_count + 1):
+        alpha_candidate = residual_share * (run_index / run_count)
+        totals = {key: 0.0 for key in NUTRIENT_ORDER}
+        totals['calories'] = 0.0
+        weights: List[float] = []
+
+        for product in products:
+            if product.max_weight <= 0:
+                weights.append(0.0)
+                continue
+
+            if product.fix_weight:
+                weight = product.resolved_fixed_weight()
+            elif alpha_candidate <= 0:
+                weight = 0.0
+            else:
+                candidate = product.max_weight * random.random() * alpha_candidate
+                weight = _quantize_weight(candidate, product.step, product.max_weight)
+
+            weights.append(weight)
+            weight_factor = weight / 100.0
+            for key in NUTRIENT_ORDER:
+                totals[key] += product.nutrients.get(key, 0.0) * weight_factor
+            kcal_value = product.nutrients.get('kcal')
+            if kcal_value is None:
+                fats = product.nutrients.get('saturated', 0.0) + product.nutrients.get('unsaturated', 0.0)
+                carbs = (
+                    product.nutrients.get('simple', 0.0)
+                    + product.nutrients.get('complex', 0.0)
+                    + product.nutrients.get('soluble', 0.0)
+                    + product.nutrients.get('insoluble', 0.0)
+                )
+                kcal_value = compute_calories((product.nutrients.get('proteins', 0.0), fats, carbs))
+            totals['calories'] += kcal_value * weight_factor
+
+        predicted_vector = np.array([totals[key] for key in NUTRIENT_ORDER], dtype=float)
+        score = rmse(predicted_vector, target_vector, calorie_weight=calorie_weight)
+        score = float(score)
+
+        if score < best_score:
+            best_score = score
+            best_run = run_index
+            best_alpha = alpha_candidate
+            best_weights = weights.copy()
+            best_totals = totals.copy()
+
+    weight_summary = [
+        {'name': product.name, 'weight': round(weight, 2)}
+        for product, weight in zip(products, best_weights)
+    ]
+
+    result_totals = {key: round(best_totals.get(key, 0.0), 4) for key in (*NUTRIENT_ORDER, 'calories')}
+    result_totals['calories'] = round(best_totals.get('calories', target_calories), 4)
+
+    return {
+        'rmse': round(best_score, 6) if math.isfinite(best_score) else 0.0,
+        'run': best_run,
+        'residual_share': round(best_alpha, 6),
+        'weights': weight_summary,
+        'totals': result_totals,
+    }
+
+
+def optimize_from_payload(payload: Dict[str, object], product_db: Optional[Dict[str, Dict[str, float]]] = None) -> Dict[str, object]:
+    """Построить рацион на основании данных из UI."""
+    if not isinstance(payload, dict):
+        raise ValueError('Некорректные данные запроса.')
+
+    if product_db is None:
+        product_db = load_product_database()
+
+    targets_raw = payload.get('targets')
+    if not isinstance(targets_raw, dict):
+        raise ValueError('Целевые значения не переданы.')
+    targets = _normalise_targets(targets_raw)
+
+    try:
+        run_count = int(payload.get('run_count', 10))
+    except (TypeError, ValueError):
+        run_count = 10
+    if run_count <= 0:
+        raise ValueError('Количество прогонов должно быть положительным.')
+
+    residual_share = payload.get('residual_share', 0.0)
+    try:
+        residual_share = float(residual_share)
+    except (TypeError, ValueError):
+        residual_share = 0.0
+
+    products_payload = payload.get('products')
+    if not isinstance(products_payload, list) or not products_payload:
+        raise ValueError('Список продуктов пуст.')
+
+    products = [_prepare_product(item, product_db) for item in products_payload]
+    result = optimise_diet(products, targets, run_count=run_count, residual_share=residual_share)
+    result['targets'] = targets
+    return result
+
+
+def main() -> None:
+    """Небольшой пример использования."""
+    sample_products = [
+        OptimizationProduct(
+            name='Sample Product',
+            nutrients={'proteins': 20, 'saturated': 5, 'unsaturated': 5, 'simple': 10, 'complex': 40, 'soluble': 5, 'insoluble': 5, 'kcal': 350},
+            step=10,
+            max_weight=200,
+        )
+    ]
+    sample_targets = {key: 50 for key in NUTRIENT_ORDER}
+    sample_targets['calories'] = 2000
+    result = optimise_diet(sample_products, sample_targets, run_count=5, residual_share=0.5)
+    print(result)
+
+
+if __name__ == '__main__':
     main()
