@@ -5,7 +5,7 @@ from flask import Flask, jsonify, request
 CSV_FILE = os.environ.get('NUTRIENTS_DB', 'Nutrients DB.csv')
 FIELDNAMES = ['Продукт', 'Белки', 'Насыщенные', 'НЕнасыщенные', 'Простые',
               'Сложные перевариваемые', 'Растворимая', 'Нерастворимая',
-              'ККал', 'Макс. порций', 'Шаг']
+              'ККал']
 
 # Поля, которые вводит пользователь (ККал вычисляется автоматически)
 INPUT_FIELDS = [f for f in FIELDNAMES if f != 'ККал']

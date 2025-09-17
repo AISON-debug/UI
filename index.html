@@ -6,75 +6,488 @@
 <style>
   table { border-collapse: collapse; }
   th, td { border: 1px solid #ccc; padding: 4px; }
+  dialog form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  dialog form .field-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  dialog form .field-row label {
+    min-width: 220px;
+    font-weight: 600;
+  }
+  dialog form .field-row input {
+    flex: 1;
+    box-sizing: border-box;
+  }
+  dialog form .field-row input[readonly] {
+    background-color: #f5f5f5;
+    cursor: default;
+  }
+  dialog form .form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  #tableControls {
+    margin: 16px 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    align-items: center;
+  }
+  #tableControls label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+  }
+  #tableControls input[type="search"] {
+    padding: 4px 8px;
+    min-width: 220px;
+  }
 </style>
 </head>
 <body>
 <h1>База продуктов</h1>
-<p>Количество продуктов: <span id="count"></span></p>
-<table id="productsTable">
-  <thead>
-    <tr>
-      <th>Продукт</th>
-      <th>Белки</th>
-      <th>Насыщенные</th>
-      <th>НЕнасыщенные</th>
-      <th>Простые</th>
-      <th>Сложные перевариваемые</th>
-      <th>Растворимая</th>
-      <th>Нерастворимая</th>
-      <th>ККал</th>
-      <th>Макс. порций</th>
-      <th>Шаг</th>
-      <th>Действия</th>
-    </tr>
-  </thead>
-  <tbody></tbody>
-</table>
+<button id="openAddDialog" type="button">Добавить продукт</button>
+<div id="tableControls">
+  <label class="search-label">
+    Поиск:
+    <input type="search" id="searchInput" placeholder="Например: сахар">
+  </label>
+  <label><input type="checkbox" id="toggleExpanded" checked> Развернутая таблица нутриентов</label>
+  <label><input type="checkbox" id="toggleHideDb"> Скрыть базу данных</label>
+</div>
+<div id="databaseSection">
+  <p>Количество продуктов: <span id="count"></span></p>
+  <table id="productsTable">
+    <thead>
+      <tr>
+        <th>Продукт</th>
+        <th>Белки</th>
+        <th>Насыщенные</th>
+        <th>НЕнасыщенные</th>
+        <th>Простые</th>
+        <th>Сложные перевариваемые</th>
+        <th>Растворимая</th>
+        <th>Нерастворимая</th>
+        <th>ККал</th>
+        <th>Действия</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+</div>
 
-<h2>Добавить продукт</h2>
-<form id="addForm">
-  <input name="Продукт" placeholder="Продукт" required>
-  <input name="Белки" placeholder="Белки" type="number" step="any" required>
-  <input name="Насыщенные" placeholder="Насыщенные" type="number" step="any" required>
-  <input name="НЕнасыщенные" placeholder="НЕнасыщенные" type="number" step="any" required>
-  <input name="Простые" placeholder="Простые" type="number" step="any" required>
-  <input name="Сложные перевариваемые" placeholder="Сложные перевариваемые" type="number" step="any" required>
-  <input name="Растворимая" placeholder="Растворимая" type="number" step="any" required>
-  <input name="Нерастворимая" placeholder="Нерастворимая" type="number" step="any" required>
-  <input name="Макс. порций" placeholder="Макс. порций" type="number" step="any" required>
-  <input name="Шаг" placeholder="Шаг" type="number" step="any" required>
-  <button type="submit">Добавить</button>
-</form>
+<dialog id="addDialog">
+  <form id="addForm">
+    <h2>Добавить продукт</h2>
+    <div class="field-row">
+      <label for="add-product">Продукт</label>
+      <input id="add-product" name="Продукт" required>
+    </div>
+    <div class="field-row">
+      <label for="add-proteins">Белки</label>
+      <input id="add-proteins" name="Белки" type="number" step="any" required>
+    </div>
+    <div class="field-row">
+      <label for="add-saturated">Насыщенные</label>
+      <input id="add-saturated" name="Насыщенные" type="number" step="any" required>
+    </div>
+    <div class="field-row">
+      <label for="add-unsaturated">НЕнасыщенные</label>
+      <input id="add-unsaturated" name="НЕнасыщенные" type="number" step="any" required>
+    </div>
+    <div class="field-row">
+      <label for="add-simple">Простые</label>
+      <input id="add-simple" name="Простые" type="number" step="any" required>
+    </div>
+    <div class="field-row">
+      <label for="add-complex">Сложные перевариваемые</label>
+      <input id="add-complex" name="Сложные перевариваемые" type="number" step="any" required>
+    </div>
+    <div class="field-row">
+      <label for="add-soluble">Растворимая</label>
+      <input id="add-soluble" name="Растворимая" type="number" step="any" required>
+    </div>
+    <div class="field-row">
+      <label for="add-insoluble">Нерастворимая</label>
+      <input id="add-insoluble" name="Нерастворимая" type="number" step="any" required>
+    </div>
+    <div class="field-row">
+      <label for="add-kcal">ККал</label>
+      <input id="add-kcal" type="text" readonly tabindex="-1" value="0.00">
+    </div>
+    <div class="form-actions">
+      <button type="submit">Добавить</button>
+      <button type="button" id="cancelAdd">Отмена</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="editDialog">
+  <form id="editForm">
+    <h2>Редактировать продукт</h2>
+    <div class="field-row">
+      <label for="edit-product">Продукт</label>
+      <input id="edit-product" name="Продукт" required>
+    </div>
+    <div class="field-row">
+      <label for="edit-proteins">Белки</label>
+      <input id="edit-proteins" name="Белки" type="number" step="any" required>
+    </div>
+    <div class="field-row">
+      <label for="edit-saturated">Насыщенные</label>
+      <input id="edit-saturated" name="Насыщенные" type="number" step="any" required>
+    </div>
+    <div class="field-row">
+      <label for="edit-unsaturated">НЕнасыщенные</label>
+      <input id="edit-unsaturated" name="НЕнасыщенные" type="number" step="any" required>
+    </div>
+    <div class="field-row">
+      <label for="edit-simple">Простые</label>
+      <input id="edit-simple" name="Простые" type="number" step="any" required>
+    </div>
+    <div class="field-row">
+      <label for="edit-complex">Сложные перевариваемые</label>
+      <input id="edit-complex" name="Сложные перевариваемые" type="number" step="any" required>
+    </div>
+    <div class="field-row">
+      <label for="edit-soluble">Растворимая</label>
+      <input id="edit-soluble" name="Растворимая" type="number" step="any" required>
+    </div>
+    <div class="field-row">
+      <label for="edit-insoluble">Нерастворимая</label>
+      <input id="edit-insoluble" name="Нерастворимая" type="number" step="any" required>
+    </div>
+    <div class="field-row">
+      <label for="edit-kcal">ККал</label>
+      <input id="edit-kcal" type="text" readonly tabindex="-1" value="0.00">
+    </div>
+    <div class="form-actions">
+      <button type="submit">Сохранить</button>
+      <button type="button" id="cancelEdit">Отмена</button>
+    </div>
+  </form>
+</dialog>
 
 <script>
-const fieldNames = ["Продукт","Белки","Насыщенные","НЕнасыщенные","Простые","Сложные перевариваемые","Растворимая","Нерастворимая","ККал","Макс. порций","Шаг"];
+const fieldNames = ["Продукт","Белки","Насыщенные","НЕнасыщенные","Простые","Сложные перевариваемые","Растворимая","Нерастворимая","ККал"];
 const inputFieldNames = fieldNames.filter(f => f !== "ККал");
+const nutrientFieldNames = inputFieldNames.filter(f => f !== "Продукт");
+
+const addDialog = document.getElementById('addDialog');
+const addForm = document.getElementById('addForm');
+const openAddButton = document.getElementById('openAddDialog');
+const cancelAddButton = document.getElementById('cancelAdd');
+const editDialog = document.getElementById('editDialog');
+const editForm = document.getElementById('editForm');
+const cancelEditButton = document.getElementById('cancelEdit');
+const addKcalField = document.getElementById('add-kcal');
+const editKcalField = document.getElementById('edit-kcal');
+const databaseSection = document.getElementById('databaseSection');
+const expandedToggle = document.getElementById('toggleExpanded');
+const hideDbToggle = document.getElementById('toggleHideDb');
+const searchInput = document.getElementById('searchInput');
+const productsTable = document.getElementById('productsTable');
+const productsTableHead = productsTable ? productsTable.querySelector('thead') : null;
+const productsTableBody = productsTable ? productsTable.querySelector('tbody') : null;
+
+function toNumber(value) {
+  const normalized = value != null ? String(value).replace(',', '.') : '';
+  const numericValue = Number(normalized);
+  return Number.isFinite(numericValue) ? numericValue : 0;
+}
+
+function formatNumber(value) {
+  return Number.isFinite(value) ? value.toFixed(2) : '0.00';
+}
+
+const expandedColumns = fieldNames.map(fn => ({
+  key: fn,
+  label: fn,
+  getValue: (row) => row[fn] ?? ''
+}));
+
+const condensedColumns = [
+  { key: 'Продукт', label: 'Продукт', getValue: (row) => row['Продукт'] ?? '' },
+  { key: 'Белки', label: 'Белки', getValue: (row) => formatNumber(toNumber(row['Белки'])) },
+  { key: 'Жиры', label: 'Жиры', getValue: (row) => formatNumber(toNumber(row['Насыщенные']) + toNumber(row['НЕнасыщенные'])) },
+  { key: 'Углеводы', label: 'Углеводы', getValue: (row) => formatNumber(
+      toNumber(row['Простые']) +
+      toNumber(row['Сложные перевариваемые']) +
+      toNumber(row['Растворимая']) +
+      toNumber(row['Нерастворимая'])
+    )
+  },
+  { key: 'ККал', label: 'ККал', getValue: (row) => row['ККал'] ?? '' }
+];
+
+let productsData = [];
+let filteredProducts = [];
+let searchTerm = '';
+let activeSearchTerm = '';
+
+let updateAddKcal = () => {};
+let updateEditKcal = () => {};
+
+function showDialog(dialog) {
+  if (!dialog) return;
+  if (typeof dialog.showModal === 'function') {
+    dialog.showModal();
+  } else {
+    dialog.setAttribute('open', 'true');
+  }
+}
+
+function hideAddDialog() {
+  if (!addDialog) return;
+  if (typeof addDialog.close === 'function') {
+    addDialog.close();
+  } else {
+    addDialog.removeAttribute('open');
+  }
+  if (addForm) {
+    addForm.reset();
+  }
+  updateAddKcal();
+}
+
+function hideEditDialog() {
+  if (!editDialog) return;
+  if (typeof editDialog.close === 'function') {
+    editDialog.close();
+  } else {
+    editDialog.removeAttribute('open');
+  }
+  if (editForm) {
+    editForm.reset();
+    delete editForm.dataset.originalName;
+  }
+  updateEditKcal();
+}
+
+function collectPayload(formData) {
+  const payload = {};
+  let nutrientSum = 0;
+  for (const fn of inputFieldNames) {
+    const raw = formData.get(fn);
+    const value = raw !== null ? String(raw).trim() : '';
+    if (value === '') {
+      return {error: 'Все поля обязательны'};
+    }
+    if (!nutrientFieldNames.includes(fn)) {
+      payload[fn] = value;
+      continue;
+    }
+    const normalized = value.replace(',', '.');
+    const numericValue = Number(normalized);
+    if (Number.isNaN(numericValue)) {
+      return {error: 'Некорректное число в поле ' + fn};
+    }
+    nutrientSum += numericValue;
+    payload[fn] = normalized;
+  }
+  if (nutrientSum - 100 > 1e-6) {
+    return {error: 'Сумма значений нутриентов > 100'};
+  }
+  return {payload};
+}
+
+function getActiveColumns() {
+  if (expandedToggle && !expandedToggle.checked) {
+    return condensedColumns;
+  }
+  return expandedColumns;
+}
+
+function applyFilters() {
+  const normalizedTerm = typeof searchTerm === 'string'
+    ? searchTerm.trim().toLowerCase()
+    : '';
+  activeSearchTerm = normalizedTerm;
+
+  if (!Array.isArray(productsData)) {
+    filteredProducts = [];
+    return;
+  }
+
+  if (!normalizedTerm) {
+    filteredProducts = productsData.slice();
+    return;
+  }
+
+  filteredProducts = productsData.filter((row) => {
+    return fieldNames.some((field) => {
+      const value = row[field];
+      if (value == null) {
+        return false;
+      }
+      return String(value).toLowerCase().includes(normalizedTerm);
+    });
+  });
+}
+
+function renderProducts() {
+  if (!productsTableHead || !productsTableBody) {
+    return;
+  }
+
+  const columns = getActiveColumns();
+  const hasSearch = Boolean(activeSearchTerm);
+  const useFiltered = Array.isArray(filteredProducts) && (filteredProducts.length > 0 || hasSearch);
+  const rows = useFiltered
+    ? filteredProducts
+    : (Array.isArray(productsData) ? productsData : []);
+  productsTableHead.innerHTML = '';
+  const headerRow = document.createElement('tr');
+  columns.forEach((column) => {
+    const th = document.createElement('th');
+    th.textContent = column.label;
+    headerRow.appendChild(th);
+  });
+  const actionTh = document.createElement('th');
+  actionTh.textContent = 'Действия';
+  headerRow.appendChild(actionTh);
+  productsTableHead.appendChild(headerRow);
+
+  productsTableBody.innerHTML = '';
+  rows.forEach((row) => {
+    const tr = document.createElement('tr');
+    columns.forEach((column) => {
+      const td = document.createElement('td');
+      td.textContent = column.getValue(row);
+      tr.appendChild(td);
+    });
+    const actionTd = document.createElement('td');
+    const btnEdit = document.createElement('button');
+    btnEdit.textContent = 'Редактировать';
+    btnEdit.onclick = () => openEditDialog(row);
+    const btnDel = document.createElement('button');
+    btnDel.textContent = 'Удалить';
+    btnDel.onclick = () => deleteProduct(row['Продукт']);
+    actionTd.appendChild(btnEdit);
+    actionTd.appendChild(btnDel);
+    tr.appendChild(actionTd);
+    productsTableBody.appendChild(tr);
+  });
+
+  updateProductCount(rows.length);
+}
+
+function updateProductCount(visibleCount) {
+  const countEl = document.getElementById('count');
+  if (countEl) {
+    const total = Array.isArray(productsData) ? productsData.length : 0;
+    if (activeSearchTerm) {
+      const visible = typeof visibleCount === 'number' ? visibleCount : 0;
+      countEl.textContent = `${visible} из ${total}`;
+    } else {
+      countEl.textContent = total;
+    }
+  }
+}
+
+function applyDatabaseVisibility() {
+  if (!databaseSection) {
+    return;
+  }
+  if (hideDbToggle && hideDbToggle.checked) {
+    databaseSection.style.display = 'none';
+  } else {
+    databaseSection.style.display = '';
+  }
+}
+
+function bindKcalUpdater(form, outputElement) {
+  if (!form || !outputElement) {
+    return () => {};
+  }
+
+  const getNumericValue = (fieldName) => {
+    const input = form.querySelector(`[name="${fieldName}"]`);
+    if (!input) {
+      return 0;
+    }
+    const raw = input.value != null ? String(input.value).trim() : '';
+    if (!raw) {
+      return 0;
+    }
+    const normalized = raw.replace(',', '.');
+    const numericValue = Number(normalized);
+    return Number.isFinite(numericValue) ? numericValue : 0;
+  };
+
+  const update = () => {
+    const proteins = getNumericValue('Белки');
+    const saturated = getNumericValue('Насыщенные');
+    const unsaturated = getNumericValue('НЕнасыщенные');
+    const simple = getNumericValue('Простые');
+    const complex = getNumericValue('Сложные перевариваемые');
+    const soluble = getNumericValue('Растворимая');
+    const insoluble = getNumericValue('Нерастворимая');
+    const kcal = (
+      proteins * 4 +
+      (saturated + unsaturated) * 9 +
+      (simple + complex) * 4 +
+      (soluble + insoluble) * 1.5
+    );
+    const formatted = Number.isFinite(kcal) ? kcal.toFixed(2) : '0.00';
+    outputElement.value = formatted;
+  };
+
+  form.addEventListener('input', (event) => {
+    if (event && event.target === outputElement) {
+      return;
+    }
+    update();
+  });
+
+  update();
+  return update;
+}
+
+updateAddKcal = bindKcalUpdater(addForm, addKcalField);
+updateEditKcal = bindKcalUpdater(editForm, editKcalField);
+
+if (expandedToggle) {
+  expandedToggle.addEventListener('change', () => {
+    renderProducts();
+  });
+}
+
+if (hideDbToggle) {
+  hideDbToggle.addEventListener('change', () => {
+    applyDatabaseVisibility();
+  });
+}
+
+if (searchInput) {
+  searchInput.addEventListener('input', (event) => {
+    searchTerm = event.target && typeof event.target.value === 'string'
+      ? event.target.value
+      : '';
+    applyFilters();
+    renderProducts();
+  });
+}
+
+applyDatabaseVisibility();
 
 async function fetchProducts(){
   const res = await fetch('/api/products');
   const data = await res.json();
-  const tbody = document.querySelector('#productsTable tbody');
-  tbody.innerHTML = '';
-  data.forEach(p => {
-    const tr = document.createElement('tr');
-    fieldNames.forEach(fn => {
-      const td = document.createElement('td');
-      td.textContent = p[fn];
-      tr.appendChild(td);
-    });
-    const tdAct = document.createElement('td');
-    const btnEdit = document.createElement('button');
-    btnEdit.textContent = 'Редактировать';
-    btnEdit.onclick = () => editProduct(p);
-    const btnDel = document.createElement('button');
-    btnDel.textContent = 'Удалить';
-    btnDel.onclick = () => deleteProduct(p['Продукт']);
-    tdAct.appendChild(btnEdit);
-    tdAct.appendChild(btnDel);
-    tr.appendChild(tdAct);
-    tbody.appendChild(tr);
-  });
-  document.getElementById('count').textContent = data.length;
+  productsData = Array.isArray(data) ? data : [];
+  if (searchInput) {
+    searchTerm = searchInput.value ?? '';
+  }
+  applyFilters();
+  renderProducts();
 }
 
 async function deleteProduct(name){
@@ -83,37 +496,103 @@ async function deleteProduct(name){
   if(res.ok) fetchProducts();
 }
 
-async function editProduct(prod){
-  const edited = {};
-  for(const fn of inputFieldNames){
-    const val = prompt('Введите ' + fn, prod[fn]);
-    if(val === null || val === ''){ alert('Все поля обязательны'); return; }
-    edited[fn] = val;
+function openEditDialog(prod){
+  editForm.dataset.originalName = prod['Продукт'];
+  for (const fn of inputFieldNames) {
+    const input = editForm.querySelector(`[name="${fn}"]`);
+    if (input) {
+      input.value = prod[fn] ?? '';
+    }
   }
-  const res = await fetch('/api/products/' + encodeURIComponent(prod['Продукт']), {
-    method: 'PUT',
-    headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(edited)
-  });
-  if(res.ok) fetchProducts();
+  updateEditKcal();
+  showDialog(editDialog);
 }
 
-document.getElementById('addForm').addEventListener('submit', async e => {
+if (openAddButton) {
+  openAddButton.addEventListener('click', () => {
+    if (addForm) {
+      addForm.reset();
+    }
+    updateAddKcal();
+    showDialog(addDialog);
+  });
+}
+
+if (cancelAddButton) {
+  cancelAddButton.addEventListener('click', () => {
+    hideAddDialog();
+  });
+}
+
+if (addDialog) {
+  addDialog.addEventListener('close', () => {
+    if (addForm) {
+      addForm.reset();
+    }
+    updateAddKcal();
+  });
+}
+
+cancelEditButton.addEventListener('click', () => {
+  hideEditDialog();
+});
+
+if (editDialog) {
+  editDialog.addEventListener('close', () => {
+    if (editForm) {
+      editForm.reset();
+      delete editForm.dataset.originalName;
+    }
+    updateEditKcal();
+  });
+}
+
+editForm.addEventListener('submit', async e => {
   e.preventDefault();
-  const formData = new FormData(e.target);
-  const obj = {};
-  for(const fn of inputFieldNames){
-    const val = formData.get(fn);
-    if(!val){ alert('Все поля обязательны'); return; }
-    obj[fn] = val;
+  const result = collectPayload(new FormData(editForm));
+  if (result.error) {
+    alert(result.error);
+    return;
+  }
+  const originalName = editForm.dataset.originalName;
+  if (!originalName) {
+    alert('Не удалось определить редактируемый продукт');
+    return;
+  }
+  const res = await fetch('/api/products/' + encodeURIComponent(originalName), {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(result.payload)
+  });
+  if (res.ok) {
+    hideEditDialog();
+    fetchProducts();
+  } else {
+    let message = 'Ошибка';
+    try {
+      const err = await res.json();
+      message = err.error || message;
+    } catch (err) {
+      // игнорируем проблемы чтения тела ответа
+    }
+    alert(message);
+  }
+});
+
+addForm.addEventListener('submit', async e => {
+  e.preventDefault();
+  const result = collectPayload(new FormData(addForm));
+  if (result.error) {
+    alert(result.error);
+    return;
   }
   const res = await fetch('/api/products', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify(obj)
+    body: JSON.stringify(result.payload)
   });
   if(res.ok){
-    e.target.reset();
+    hideAddDialog();
     fetchProducts();
   }else{
     const err = await res.json();
