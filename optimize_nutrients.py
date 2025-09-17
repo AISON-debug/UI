@@ -44,19 +44,65 @@ def compute_calories(nutrients: Iterable[float]) -> float:
     return protein * 4 + fat * 9 + carbs * 4
 
 
-def rmse(predicted: Iterable[float], target: Iterable[float], calorie_weight: Optional[float] = None) -> float:
-    """Calculate root mean squared error between vectors."""
-    predicted = np.array(predicted, dtype=float)
-    target = np.array(target, dtype=float)
+def _macro_tuple_from_vector(vector: Iterable[float], nutrient_keys: Iterable[str]) -> tuple[float, float, float]:
+    """Построить кортеж (белки, жиры, углеводы) из вектора нутриентов."""
 
-    diffs = predicted - target
+    index_map = {key: idx for idx, key in enumerate(nutrient_keys)}
+
+    def _value(key: str) -> float:
+        position = index_map.get(key)
+        if position is None:
+            return 0.0
+        try:
+            return float(vector[position])
+        except (TypeError, ValueError):
+            return 0.0
+
+    protein = _value('proteins')
+    fats = _value('saturated') + _value('unsaturated')
+    carbs = sum(_value(key) for key in ('simple', 'complex', 'soluble', 'insoluble'))
+
+    return protein, fats, carbs
+
+
+def rmse(
+    predicted: Iterable[float],
+    target: Iterable[float],
+    *,
+    nutrient_keys: Optional[Iterable[str]] = None,
+    calorie_weight: Optional[float] = None,
+    predicted_calories: Optional[float] = None,
+    target_calories: Optional[float] = None,
+) -> float:
+    """Calculate root mean squared error between nutrient vectors."""
+
+    predicted_arr = np.array(predicted, dtype=float)
+    target_arr = np.array(target, dtype=float)
+
+    diffs = predicted_arr - target_arr
 
     if calorie_weight is not None:
-        pred_calories = compute_calories(predicted)
-        target_calories = compute_calories(target)
-        diffs = np.append(diffs, (pred_calories - target_calories) * calorie_weight)
+        try:
+            cal_weight = float(calorie_weight)
+        except (TypeError, ValueError):
+            cal_weight = 0.0
 
-    return np.sqrt(np.mean(diffs ** 2))
+        if math.isfinite(cal_weight) and cal_weight != 0.0:
+            cal_weight = abs(cal_weight)
+            if predicted_calories is None or target_calories is None:
+                if nutrient_keys is None:
+                    raise ValueError('nutrient_keys are required to compute calories automatically')
+                protein_pred, fat_pred, carb_pred = _macro_tuple_from_vector(predicted_arr, nutrient_keys)
+                protein_target, fat_target, carb_target = _macro_tuple_from_vector(target_arr, nutrient_keys)
+                if predicted_calories is None:
+                    predicted_calories = compute_calories((protein_pred, fat_pred, carb_pred))
+                if target_calories is None:
+                    target_calories = compute_calories((protein_target, fat_target, carb_target))
+
+            calories_diff = (float(predicted_calories or 0.0) - float(target_calories or 0.0)) * cal_weight
+            diffs = np.append(diffs, calories_diff)
+
+    return float(np.sqrt(np.mean(diffs ** 2)))
 
 
 def _parse_float(value: Optional[str]) -> float:
@@ -209,7 +255,15 @@ def optimise_diet(
             totals['calories'] += kcal_value * weight_factor
 
         predicted_vector = np.array([totals[key] for key in NUTRIENT_ORDER], dtype=float)
-        score = rmse(predicted_vector, target_vector, calorie_weight=calorie_weight)
+        predicted_calories = totals.get('calories')
+        score = rmse(
+            predicted_vector,
+            target_vector,
+            nutrient_keys=NUTRIENT_ORDER,
+            calorie_weight=calorie_weight,
+            predicted_calories=predicted_calories if predicted_calories else None,
+            target_calories=target_calories if target_calories else None,
+        )
         score = float(score)
 
         if score < best_score:
