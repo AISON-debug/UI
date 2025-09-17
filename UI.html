@@ -339,12 +339,33 @@
             <tbody id="best-result-body"></tbody>
         </table>
     </div>
+    <div id="best-result-breakdown" class="hidden">
+        <h3>Вклад продуктов в нутриенты</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Продукт</th>
+                    <th>Белки</th>
+                    <th>Жиры насыщенные</th>
+                    <th>Жиры ненасыщенные</th>
+                    <th>Углеводы простые</th>
+                    <th>Углеводы сложные перевариваемые</th>
+                    <th>Клетчатка растворимая</th>
+                    <th>Клетчатка нерастворимая</th>
+                    <th>ККал</th>
+                </tr>
+            </thead>
+            <tbody id="best-result-nutrients-body"></tbody>
+            <tfoot id="best-result-nutrients-footer"></tfoot>
+        </table>
+    </div>
 
         <script>
         (function() {
             'use strict';
 
             const NUTRIENT_KEYS = ['proteins', 'saturated', 'unsaturated', 'simple', 'complex', 'soluble', 'insoluble'];
+            const ALL_NUTRIENT_KEYS = [...NUTRIENT_KEYS, 'calories'];
             const SUMMARY_LABELS = {
                 proteins: 'Белки',
                 saturated: 'Жиры насыщенные',
@@ -411,6 +432,9 @@
             const resultTotalsBody = document.getElementById('result-totals-body');
             const bestResultSection = document.getElementById('best-result');
             const bestResultBody = document.getElementById('best-result-body');
+            const bestResultBreakdownSection = document.getElementById('best-result-breakdown');
+            const bestResultBreakdownBody = document.getElementById('best-result-nutrients-body');
+            const bestResultBreakdownFooter = document.getElementById('best-result-nutrients-footer');
             const targetSummarySection = document.getElementById('target-summary');
             const targetSummaryBody = document.getElementById('target-summary-body');
             const openCalculatorButton = document.getElementById('open-calculator');
@@ -451,6 +475,15 @@
                 if (bestResultBody) {
                     bestResultBody.innerHTML = '';
                 }
+                if (bestResultBreakdownSection) {
+                    bestResultBreakdownSection.classList.add('hidden');
+                }
+                if (bestResultBreakdownBody) {
+                    bestResultBreakdownBody.innerHTML = '';
+                }
+                if (bestResultBreakdownFooter) {
+                    bestResultBreakdownFooter.innerHTML = '';
+                }
             }
 
             function renderTargetSummary(targets) {
@@ -462,8 +495,7 @@
                     targetSummaryBody.innerHTML = '';
                     return;
                 }
-                const order = ['proteins', 'saturated', 'unsaturated', 'simple', 'complex', 'soluble', 'insoluble', 'calories'];
-                const rows = order.map(key => {
+                const rows = ALL_NUTRIENT_KEYS.map(key => {
                     const label = SUMMARY_LABELS[key] || key;
                     const value = formatValueWithUnit(targets[key], key);
                     return `<tr><td>${label}</td><td class="right">${value}</td></tr>`;
@@ -481,8 +513,7 @@
                     resultTotalsBody.innerHTML = '';
                     return;
                 }
-                const order = [...NUTRIENT_KEYS, 'calories'];
-                const rows = order.map(key => {
+                const rows = ALL_NUTRIENT_KEYS.map(key => {
                     const label = SUMMARY_LABELS[key] || key;
                     const targetValue = formatValueWithUnit(targets[key], key);
                     const totalValue = formatValueWithUnit(totals[key], key);
@@ -490,6 +521,125 @@
                 }).join('');
                 resultTotalsBody.innerHTML = rows;
                 resultTotalsSection.classList.remove('hidden');
+            }
+
+            function renderBestNutrientBreakdown(result, weights) {
+                if (!bestResultBreakdownSection || !bestResultBreakdownBody) {
+                    return;
+                }
+                const breakdown = result && typeof result === 'object' ? result.nutrient_breakdown : null;
+                const hasBreakdownData = Boolean(breakdown && Array.isArray(breakdown.products) && breakdown.products.length);
+                const hasWeightData = Array.isArray(weights) && weights.length > 0;
+
+                if (!hasBreakdownData && !hasWeightData) {
+                    bestResultBreakdownSection.classList.add('hidden');
+                    bestResultBreakdownBody.innerHTML = '';
+                    if (bestResultBreakdownFooter) {
+                        bestResultBreakdownFooter.innerHTML = '';
+                    }
+                    return;
+                }
+
+                const nutrientOrder = ALL_NUTRIENT_KEYS;
+                const columnCount = nutrientOrder.length + 1;
+                let rows = [];
+                let totals = null;
+
+                if (hasBreakdownData) {
+                    const weightOrder = hasWeightData ? weights.map(item => item.name) : null;
+                    rows = breakdown.products.map(entry => {
+                        const name = entry && typeof entry.name === 'string' ? entry.name : String(entry && entry.name ? entry.name : '');
+                        const nutrients = entry && typeof entry.nutrients === 'object' ? entry.nutrients : {};
+                        const values = nutrientOrder.map(key => {
+                            const numeric = Number(nutrients[key]);
+                            return Number.isFinite(numeric) ? numeric : 0;
+                        });
+                        return {
+                            name,
+                            values,
+                            orderIndex: weightOrder ? weightOrder.indexOf(name) : -1
+                        };
+                    });
+                    if (weightOrder) {
+                        rows.sort((a, b) => {
+                            const aIndex = a.orderIndex >= 0 ? a.orderIndex : Number.MAX_SAFE_INTEGER;
+                            const bIndex = b.orderIndex >= 0 ? b.orderIndex : Number.MAX_SAFE_INTEGER;
+                            if (aIndex !== bIndex) {
+                                return aIndex - bIndex;
+                            }
+                            return a.name.localeCompare(b.name);
+                        });
+                    } else {
+                        rows.sort((a, b) => a.name.localeCompare(b.name));
+                    }
+                    if (breakdown.totals && typeof breakdown.totals === 'object') {
+                        totals = nutrientOrder.reduce((acc, key) => {
+                            const numeric = Number(breakdown.totals[key]);
+                            acc[key] = Number.isFinite(numeric) ? numeric : 0;
+                            return acc;
+                        }, {});
+                    }
+                } else if (hasWeightData) {
+                    rows = weights.map(item => {
+                        const name = item && typeof item.name === 'string' ? item.name : '';
+                        const grams = Number(item.weight) || 0;
+                        const product = state.products[name] || {};
+                        const values = nutrientOrder.map(key => {
+                            let per100 = 0;
+                            if (product && typeof product === 'object') {
+                                if (key === 'calories') {
+                                    const raw = product.calories ?? product.kcal;
+                                    per100 = Number(raw) || 0;
+                                } else {
+                                    per100 = Number(product[key]) || 0;
+                                }
+                            }
+                            return grams * per100 / 100;
+                        });
+                        return { name, values };
+                    });
+                }
+
+                if (!rows.length) {
+                    bestResultBreakdownBody.innerHTML = `<tr><td colspan="${columnCount}">Данные отсутствуют</td></tr>`;
+                    if (bestResultBreakdownFooter) {
+                        bestResultBreakdownFooter.innerHTML = '';
+                    }
+                    bestResultBreakdownSection.classList.remove('hidden');
+                    return;
+                }
+
+                if (!totals) {
+                    totals = nutrientOrder.reduce((acc, key) => {
+                        acc[key] = 0;
+                        return acc;
+                    }, {});
+                    rows.forEach(row => {
+                        row.values.forEach((value, index) => {
+                            const key = nutrientOrder[index];
+                            const numeric = Number(value);
+                            if (Number.isFinite(numeric)) {
+                                totals[key] += numeric;
+                            }
+                        });
+                    });
+                }
+
+                const bodyHtml = rows.map(row => {
+                    const cells = row.values.map((value, index) => {
+                        const key = nutrientOrder[index];
+                        return `<td class="right">${formatValueWithUnit(value, key)}</td>`;
+                    }).join('');
+                    return `<tr><td>${row.name}</td>${cells}</tr>`;
+                }).join('');
+                bestResultBreakdownBody.innerHTML = bodyHtml;
+
+                if (bestResultBreakdownFooter) {
+                    const footerCells = nutrientOrder.map(key => `<td class="right">${formatValueWithUnit(totals[key], key)}</td>`).join('');
+                    bestResultBreakdownFooter.innerHTML = `<tr><th scope="row">Итого</th>${footerCells}</tr>`;
+                }
+
+                bestResultBreakdownSection.classList.remove('hidden');
             }
 
             function extractTargetsFromSummary(summaryElement) {
@@ -732,18 +882,35 @@
                 const targetsForTotals = (result && typeof result.targets === 'object') ? result.targets : state.currentTargets;
                 const totalsForResult = result && typeof result.totals === 'object' ? result.totals : null;
                 renderResultTotals(targetsForTotals, totalsForResult);
+                const weights = Array.isArray(result.weights)
+                    ? result.weights
+                        .map(item => {
+                            const weightValue = Number(item && item.weight);
+                            const nameValue = item && typeof item.name === 'string' ? item.name : String(item && item.name ? item.name : '');
+                            return {
+                                name: nameValue,
+                                weight: Number.isFinite(weightValue) ? weightValue : NaN
+                            };
+                        })
+                        .filter(entry => Number.isFinite(entry.weight) && entry.weight >= 0)
+                    : [];
+                if (weights.length > 1) {
+                    weights.sort((a, b) => {
+                        if (b.weight !== a.weight) {
+                            return b.weight - a.weight;
+                        }
+                        return a.name.localeCompare(b.name);
+                    });
+                }
                 if (bestResultBody && bestResultSection) {
-                    const weights = Array.isArray(result.weights)
-                        ? result.weights.filter(item => Number.isFinite(item.weight) && item.weight >= 0)
-                        : [];
                     if (weights.length) {
-                        weights.sort((a, b) => b.weight - a.weight);
                         bestResultBody.innerHTML = weights.map(item => `<tr><td>${item.name}</td><td>${formatNumber(item.weight)}</td></tr>`).join('');
                     } else {
                         bestResultBody.innerHTML = '<tr><td colspan="2">Данные отсутствуют</td></tr>';
                     }
                     bestResultSection.classList.remove('hidden');
                 }
+                renderBestNutrientBreakdown(result, weights);
             }
 
             function hasValidTargets(targets) {
@@ -1080,6 +1247,7 @@
                                 soluble,
                                 insoluble,
                                 kcal,
+                                calories: kcal,
                                 fats,
                                 carbs
                             };

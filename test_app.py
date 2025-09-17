@@ -5,6 +5,8 @@ import importlib
 
 import pytest
 
+import optimize_nutrients
+
 FIELDNAMES = ["Продукт","Белки","Насыщенные","НЕнасыщенные","Простые",
               "Сложные перевариваемые","Растворимая","Нерастворимая",
               "ККал","Макс. порций","Шаг"]
@@ -67,3 +69,56 @@ def test_crud_flow(client):
 
     resp = client.get('/api/products')
     assert len(resp.get_json()) == base_count
+
+
+def test_optimize_returns_breakdown():
+    payload = {
+        'targets': {
+            'proteins': 10,
+            'saturated': 5,
+            'unsaturated': 5,
+            'simple': 5,
+            'complex': 5,
+            'soluble': 5,
+            'insoluble': 5,
+            'calories': 100,
+        },
+        'run_count': 1,
+        'residual_share': 0,
+        'allow_zero_weights': True,
+        'products': [
+            {
+                'name': 'Test Product',
+                'step': 1,
+                'max_weight': 100,
+                'fix_weight': True,
+                'fixed_weight': 100,
+            }
+        ],
+    }
+    product_db = {
+        'Test Product': {
+            'proteins': 10,
+            'saturated': 5,
+            'unsaturated': 5,
+            'simple': 5,
+            'complex': 5,
+            'soluble': 5,
+            'insoluble': 5,
+            'calories': 100,
+            'kcal': 100,
+        }
+    }
+
+    result = optimize_nutrients.optimize_from_payload(payload, product_db=product_db)
+
+    assert 'nutrient_breakdown' in result
+    breakdown = result['nutrient_breakdown']
+    assert isinstance(breakdown, dict)
+    assert breakdown['products'], 'breakdown should contain product rows'
+    product_row = breakdown['products'][0]
+    assert pytest.approx(product_row['nutrients']['proteins'], rel=1e-4) == 10
+    assert pytest.approx(product_row['nutrients']['calories'], rel=1e-4) == 100
+    totals = breakdown['totals']
+    assert pytest.approx(totals['proteins'], rel=1e-4) == 10
+    assert pytest.approx(totals['calories'], rel=1e-4) == 100
