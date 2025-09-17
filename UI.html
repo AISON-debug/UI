@@ -134,6 +134,61 @@
             background: #fff;
             color: #111;
         }
+        #generate-random-pool {
+            margin: 12px 0;
+            padding: 6px 12px;
+        }
+        #random-pool-dialog {
+            border: none;
+            border-radius: 12px;
+            padding: 0;
+            max-width: min(420px, 90vw);
+        }
+        #random-pool-dialog form {
+            margin: 0;
+        }
+        #random-pool-dialog .random-pool-body {
+            padding: 18px 20px 10px;
+            display: grid;
+            gap: 12px;
+            background: #fff;
+        }
+        #random-pool-dialog .random-pool-body h3 {
+            margin: 0;
+        }
+        #random-pool-dialog .random-pool-field {
+            display: grid;
+            gap: 6px;
+        }
+        #random-pool-dialog .random-pool-field span {
+            font-size: 14px;
+            color: #374151;
+        }
+        #random-pool-dialog .random-pool-field input[type="number"] {
+            padding: 6px 8px;
+        }
+        #random-pool-dialog .modal-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+            padding: 12px 16px 16px;
+            background: #f9fafb;
+            border-top: 1px solid #e5e7eb;
+            border-bottom-left-radius: 12px;
+            border-bottom-right-radius: 12px;
+        }
+        #random-pool-dialog .modal-actions button {
+            padding: 8px 16px;
+            border-radius: 10px;
+            border: 1px solid #d1d5db;
+            background: #0ea5e9;
+            color: #fff;
+            cursor: pointer;
+        }
+        #random-pool-dialog .modal-actions button#random-pool-cancel {
+            background: #fff;
+            color: #111;
+        }
     </style>
 </head>
 <body>
@@ -268,6 +323,38 @@
         <tbody></tbody>
     </table>
     <h2>Мой пул</h2>
+    <button type="button" id="generate-random-pool">Сгенерировать случайный пул</button>
+    <dialog id="random-pool-dialog">
+        <form method="dialog" id="random-pool-form">
+            <div class="random-pool-body">
+                <h3>Параметры генерации</h3>
+                <label class="random-pool-field" for="random-min-products">
+                    <span>Минимальное количество продуктов</span>
+                    <input type="number" id="random-min-products" min="1" step="1" value="3">
+                </label>
+                <label class="random-pool-field" for="random-step-min">
+                    <span>rand шаг min</span>
+                    <input type="number" id="random-step-min" min="0.1" step="0.1" value="5">
+                </label>
+                <label class="random-pool-field" for="random-step-max">
+                    <span>rand шаг max</span>
+                    <input type="number" id="random-step-max" min="0.1" step="0.1" value="20">
+                </label>
+                <label class="random-pool-field" for="random-max-portions-min">
+                    <span>rand Макс_порц min</span>
+                    <input type="number" id="random-max-portions-min" min="1" step="1" value="1">
+                </label>
+                <label class="random-pool-field" for="random-max-portions-max">
+                    <span>rand Макс_порц max</span>
+                    <input type="number" id="random-max-portions-max" min="1" step="1" value="5">
+                </label>
+            </div>
+            <div class="modal-actions">
+                <button type="button" id="random-pool-confirm">ОК</button>
+                <button type="button" id="random-pool-cancel">Отмена</button>
+            </div>
+        </form>
+    </dialog>
     <table id="pool">
         <thead>
             <tr>
@@ -394,6 +481,31 @@
                 return value;
             }
 
+            function getRandomInt(min, max) {
+                const minInt = Math.ceil(min);
+                const maxInt = Math.floor(max);
+                if (maxInt < minInt) {
+                    return minInt;
+                }
+                return Math.floor(Math.random() * (maxInt - minInt + 1)) + minInt;
+            }
+
+            function getRandomFloat(min, max) {
+                if (max < min) {
+                    return min;
+                }
+                return (Math.random() * (max - min)) + min;
+            }
+
+            function shuffleArray(source) {
+                const array = source.slice();
+                for (let i = array.length - 1; i > 0; i -= 1) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [array[i], array[j]] = [array[j], array[i]];
+                }
+                return array;
+            }
+
             const dbTable = document.getElementById('db');
             const dbBody = dbTable ? dbTable.querySelector('tbody') : null;
             const poolTable = document.getElementById('pool');
@@ -418,6 +530,15 @@
             const calculatorOkButton = document.getElementById('calculator-ok');
             const calculatorCancelButton = document.getElementById('calculator-cancel');
             const allowZeroWeightsToggle = document.getElementById('allow-zero-weights');
+            const randomPoolButton = document.getElementById('generate-random-pool');
+            const randomPoolDialog = document.getElementById('random-pool-dialog');
+            const randomPoolConfirmButton = document.getElementById('random-pool-confirm');
+            const randomPoolCancelButton = document.getElementById('random-pool-cancel');
+            const randomMinProductsInput = document.getElementById('random-min-products');
+            const randomStepMinInput = document.getElementById('random-step-min');
+            const randomStepMaxInput = document.getElementById('random-step-max');
+            const randomMaxPortionsMinInput = document.getElementById('random-max-portions-min');
+            const randomMaxPortionsMaxInput = document.getElementById('random-max-portions-max');
 
             let calculatorSummaryBody = null;
             let updateCalculatorSummary = null;
@@ -575,6 +696,15 @@
                     });
                 });
                 return selected;
+            }
+
+            function clearPool() {
+                if (!poolBody) {
+                    return;
+                }
+                poolBody.innerHTML = '';
+                state.optimizationList.clear();
+                resetOptimizationResults();
             }
 
             function addToPool(name) {
@@ -974,6 +1104,108 @@
                 }
                 updateNutrientVisibility();
                 updateDbVisibility();
+
+                if (randomPoolButton && randomPoolDialog) {
+                    randomPoolButton.addEventListener('click', () => {
+                        randomPoolDialog.showModal();
+                    });
+                }
+
+                if (randomPoolCancelButton && randomPoolDialog) {
+                    randomPoolCancelButton.addEventListener('click', () => {
+                        randomPoolDialog.close();
+                    });
+                }
+
+                if (randomPoolDialog) {
+                    randomPoolDialog.addEventListener('cancel', event => {
+                        event.preventDefault();
+                        randomPoolDialog.close();
+                    });
+                }
+
+                if (randomPoolConfirmButton) {
+                    randomPoolConfirmButton.addEventListener('click', () => {
+                        const allProducts = Object.keys(state.products);
+                        if (!allProducts.length) {
+                            alert('База продуктов ещё не загружена.');
+                            return;
+                        }
+
+                        const minProducts = Math.floor(parseFloat(randomMinProductsInput && randomMinProductsInput.value));
+                        if (!Number.isFinite(minProducts) || minProducts <= 0) {
+                            alert('Введите минимальное количество продуктов (целое число больше нуля).');
+                            return;
+                        }
+                        if (minProducts > allProducts.length) {
+                            alert('Минимальное количество продуктов не может превышать размер базы.');
+                            return;
+                        }
+
+                        const stepMin = parseFloat(randomStepMinInput && randomStepMinInput.value);
+                        const stepMax = parseFloat(randomStepMaxInput && randomStepMaxInput.value);
+                        if (!Number.isFinite(stepMin) || !Number.isFinite(stepMax) || stepMin <= 0 || stepMax <= 0) {
+                            alert('Введите корректные значения для шага (больше нуля).');
+                            return;
+                        }
+                        if (stepMin > stepMax) {
+                            alert('Значение "rand шаг min" не может быть больше "rand шаг max".');
+                            return;
+                        }
+                        const normalizedStepMin = Math.max(0.1, stepMin);
+                        const normalizedStepMax = Math.max(normalizedStepMin, stepMax);
+
+                        const maxPortionsMin = Math.floor(parseFloat(randomMaxPortionsMinInput && randomMaxPortionsMinInput.value));
+                        const maxPortionsMax = Math.floor(parseFloat(randomMaxPortionsMaxInput && randomMaxPortionsMaxInput.value));
+                        if (!Number.isFinite(maxPortionsMin) || !Number.isFinite(maxPortionsMax) || maxPortionsMin <= 0 || maxPortionsMax <= 0) {
+                            alert('Введите корректные значения для "Макс. порций" (целые числа больше нуля).');
+                            return;
+                        }
+                        if (maxPortionsMin > maxPortionsMax) {
+                            alert('"rand Макс_порц min" не может быть больше "rand Макс_порц max".');
+                            return;
+                        }
+
+                        const productCount = getRandomInt(minProducts, allProducts.length);
+                        const selectedNames = shuffleArray(allProducts).slice(0, productCount);
+                        clearPool();
+                        selectedNames.forEach(name => {
+                            addToPool(name);
+                            const row = poolBody ? poolBody.querySelector(`tr[data-name="${name}"]`) : null;
+                            if (!row) {
+                                return;
+                            }
+                            const randomStepRaw = getRandomFloat(normalizedStepMin, normalizedStepMax);
+                            let randomStep = Math.round(randomStepRaw * 10) / 10;
+                            if (randomStep < normalizedStepMin) {
+                                randomStep = normalizedStepMin;
+                            }
+                            if (randomStep > normalizedStepMax) {
+                                randomStep = normalizedStepMax;
+                            }
+                            const randomMaxPortions = getRandomInt(maxPortionsMin, maxPortionsMax);
+
+                            const stepInput = row.querySelector('.step');
+                            const maxPortionsInput = row.querySelector('.max-portions');
+                            const optimizeCheckbox = row.querySelector('.optimize');
+
+                            if (stepInput) {
+                                stepInput.value = randomStep.toFixed(1);
+                                stepInput.dispatchEvent(new Event('input', { bubbles: true }));
+                            }
+                            if (maxPortionsInput) {
+                                maxPortionsInput.value = randomMaxPortions.toString();
+                                maxPortionsInput.dispatchEvent(new Event('input', { bubbles: true }));
+                            }
+                            if (optimizeCheckbox) {
+                                optimizeCheckbox.checked = true;
+                                optimizeCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
+                            }
+                        });
+
+                        randomPoolDialog.close();
+                    });
+                }
 
                 if (runOptimizationButton) {
                     runOptimizationButton.addEventListener('click', async () => {
