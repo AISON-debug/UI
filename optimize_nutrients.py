@@ -112,6 +112,16 @@ def _parse_float(value: Optional[str]) -> float:
         return 0.0
 
 
+def _parse_bool(value: object, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
+    return default
+
+
 def load_product_database(csv_path: str = DEFAULT_CSV_PATH) -> Dict[str, Dict[str, float]]:
     """Загрузить базу продуктов из CSV и вернуть словарь с ключами нутриентов."""
     products: Dict[str, Dict[str, float]] = {}
@@ -134,15 +144,35 @@ def load_product_database(csv_path: str = DEFAULT_CSV_PATH) -> Dict[str, Dict[st
     return products
 
 
-def _quantize_weight(weight: float, step: float, max_weight: float) -> float:
-    if weight <= 0:
+def _quantize_weight(
+    weight: float,
+    step: float,
+    max_weight: float,
+    *,
+    min_weight: float = 0.0,
+) -> float:
+    if max_weight <= 0:
         return 0.0
+
+    effective = max(0.0, min(weight, max_weight))
     if step <= 0:
-        return min(weight, max_weight)
-    steps = round(weight / step)
-    quantized = steps * step
-    if quantized > max_weight:
-        quantized = math.floor(max_weight / step) * step
+        quantized = effective
+    else:
+        steps = round(effective / step)
+        quantized = steps * step
+        if quantized > max_weight:
+            quantized = math.floor(max_weight / step) * step
+        quantized = max(0.0, quantized)
+
+    if min_weight > 0:
+        min_weight = max(0.0, min(min_weight, max_weight))
+        if step > 0:
+            min_steps = max(1, math.ceil(min_weight / step))
+            min_candidate = min(max_weight, min_steps * step)
+            min_weight = min_candidate if min_candidate > 0 else min(max_weight, step)
+        if quantized < min_weight:
+            quantized = min_weight
+
     return max(0.0, min(quantized, max_weight))
 
 
@@ -202,6 +232,7 @@ def optimise_diet(
     targets: Dict[str, float],
     run_count: int,
     residual_share: float,
+    allow_zero_weights: bool = True,
     calorie_weight: float = 0.01,
 ) -> Dict[str, object]:
     if not products:
@@ -230,13 +261,33 @@ def optimise_diet(
                 weights.append(0.0)
                 continue
 
+            min_weight = 0.0
+            if (
+                not allow_zero_weights
+                and not product.fix_weight
+                and product.max_weight > 0
+            ):
+                if product.step > 0:
+                    min_weight = min(product.step, product.max_weight)
+                else:
+                    min_weight = min(product.max_weight, 1.0)
+                if min_weight <= 0:
+                    min_weight = product.max_weight
+
             if product.fix_weight:
                 weight = product.resolved_fixed_weight()
-            elif alpha_candidate <= 0:
-                weight = 0.0
             else:
-                candidate = product.max_weight * random.random() * alpha_candidate
-                weight = _quantize_weight(candidate, product.step, product.max_weight)
+                candidate = (
+                    product.max_weight * random.random() * alpha_candidate
+                    if alpha_candidate > 0
+                    else 0.0
+                )
+                weight = _quantize_weight(
+                    candidate,
+                    product.step,
+                    product.max_weight,
+                    min_weight=min_weight,
+                )
 
             weights.append(weight)
             weight_factor = weight / 100.0
@@ -316,13 +367,22 @@ def optimize_from_payload(payload: Dict[str, object], product_db: Optional[Dict[
     except (TypeError, ValueError):
         residual_share = 0.0
 
+    allow_zero_weights = _parse_bool(payload.get('allow_zero_weights'), default=True)
+
     products_payload = payload.get('products')
     if not isinstance(products_payload, list) or not products_payload:
         raise ValueError('Список продуктов пуст.')
 
     products = [_prepare_product(item, product_db) for item in products_payload]
-    result = optimise_diet(products, targets, run_count=run_count, residual_share=residual_share)
+    result = optimise_diet(
+        products,
+        targets,
+        run_count=run_count,
+        residual_share=residual_share,
+        allow_zero_weights=allow_zero_weights,
+    )
     result['targets'] = targets
+    result['allow_zero_weights'] = allow_zero_weights
     return result
 
 

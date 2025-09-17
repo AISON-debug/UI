@@ -45,8 +45,12 @@
             margin-top: 12px;
         }
         #target-summary table,
+        #result-totals table,
         #best-result table {
             width: 100%;
+        }
+        #result-totals {
+            margin-top: 16px;
         }
         #best-result {
             margin-top: 16px;
@@ -290,19 +294,38 @@
     </table>
     <div id="optimization-controls">
         <div class="optimization-field">
-            <label for="residual-share">Доля остатка</label>
-            <input type="number" id="residual-share" min="0" max="1" step="0.05" value="0.5">
+            <label for="residual-share">Доля остатка (%)</label>
+            <input type="number" id="residual-share" min="0" max="100" step="1" value="50">
         </div>
         <div class="optimization-field">
             <label for="run-count">Количество прогонов</label>
             <input type="number" id="run-count" min="1" step="1" value="10">
         </div>
+        <div class="optimization-field">
+            <label>
+                <input type="checkbox" id="allow-zero-weights" checked>
+                Разрешить нулевой вес продуктов
+            </label>
+        </div>
         <button type="button" id="run-optimization">Рассчитать оптимальный рацион</button>
     </div>
     <div id="optimization-results" class="hidden">
         <div class="result-row"><strong>RMSE:</strong> <span id="rmse-result">-</span></div>
-        <div class="result-row"><strong>Доля остатка:</strong> <span id="alpha-result">-</span></div>
+        <div class="result-row"><strong>Доля остатка (%):</strong> <span id="alpha-result">-</span></div>
         <div class="result-row"><strong>Прогон:</strong> <span id="run-result">-</span></div>
+    </div>
+    <div id="result-totals" class="hidden">
+        <h3>Сравнение целевых и расчётных нутриентов</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Нутриенты</th>
+                    <th>Целевые</th>
+                    <th>Расчёт</th>
+                </tr>
+            </thead>
+            <tbody id="result-totals-body"></tbody>
+        </table>
     </div>
     <div id="best-result" class="hidden">
         <h3>Продукты с минимальным RMSE</h3>
@@ -384,6 +407,8 @@
             const rmseResult = document.getElementById('rmse-result');
             const alphaResult = document.getElementById('alpha-result');
             const runResult = document.getElementById('run-result');
+            const resultTotalsSection = document.getElementById('result-totals');
+            const resultTotalsBody = document.getElementById('result-totals-body');
             const bestResultSection = document.getElementById('best-result');
             const bestResultBody = document.getElementById('best-result-body');
             const targetSummarySection = document.getElementById('target-summary');
@@ -392,9 +417,19 @@
             const calculatorDialog = document.getElementById('calculator-dialog');
             const calculatorOkButton = document.getElementById('calculator-ok');
             const calculatorCancelButton = document.getElementById('calculator-cancel');
+            const allowZeroWeightsToggle = document.getElementById('allow-zero-weights');
 
             let calculatorSummaryBody = null;
             let updateCalculatorSummary = null;
+
+            function formatValueWithUnit(value, key) {
+                const unit = key === 'calories' ? 'ккал' : 'г';
+                const numeric = Number(value);
+                if (!Number.isFinite(numeric)) {
+                    return '—';
+                }
+                return `${formatNumber(numeric)}&nbsp;${unit}`;
+            }
 
             function resetOptimizationResults() {
                 if (optimizationResults) {
@@ -409,6 +444,7 @@
                 if (runResult) {
                     runResult.textContent = '-';
                 }
+                renderResultTotals(null, null);
                 if (bestResultSection) {
                     bestResultSection.classList.add('hidden');
                 }
@@ -429,12 +465,31 @@
                 const order = ['proteins', 'saturated', 'unsaturated', 'simple', 'complex', 'soluble', 'insoluble', 'calories'];
                 const rows = order.map(key => {
                     const label = SUMMARY_LABELS[key] || key;
-                    const unit = key === 'calories' ? ' ккал' : ' г';
-                    const value = formatNumber(targets[key]);
-                    return `<tr><td>${label}</td><td>${value}${unit}</td></tr>`;
+                    const value = formatValueWithUnit(targets[key], key);
+                    return `<tr><td>${label}</td><td class="right">${value}</td></tr>`;
                 }).join('');
                 targetSummaryBody.innerHTML = rows;
                 targetSummarySection.classList.remove('hidden');
+            }
+
+            function renderResultTotals(targets, totals) {
+                if (!resultTotalsSection || !resultTotalsBody) {
+                    return;
+                }
+                if (!targets || !totals || typeof targets !== 'object' || typeof totals !== 'object') {
+                    resultTotalsSection.classList.add('hidden');
+                    resultTotalsBody.innerHTML = '';
+                    return;
+                }
+                const order = [...NUTRIENT_KEYS, 'calories'];
+                const rows = order.map(key => {
+                    const label = SUMMARY_LABELS[key] || key;
+                    const targetValue = formatValueWithUnit(targets[key], key);
+                    const totalValue = formatValueWithUnit(totals[key], key);
+                    return `<tr><td>${label}</td><td>${targetValue}</td><td>${totalValue}</td></tr>`;
+                }).join('');
+                resultTotalsBody.innerHTML = rows;
+                resultTotalsSection.classList.remove('hidden');
             }
 
             function extractTargetsFromSummary(summaryElement) {
@@ -653,7 +708,7 @@
                 return data;
             }
 
-            function displayOptimizationResult(result, requestedAlpha) {
+            function displayOptimizationResult(result, requestedAlphaFraction) {
                 if (!result) {
                     resetOptimizationResults();
                     return;
@@ -664,13 +719,19 @@
                 if (rmseResult) {
                     rmseResult.textContent = formatNumber(result.rmse ?? 0, 4);
                 }
-                const alphaValue = Number.isFinite(result.residual_share) ? result.residual_share : clampFraction(requestedAlpha);
+                const alphaValue = Number.isFinite(result.residual_share)
+                    ? Number(result.residual_share)
+                    : clampFraction(requestedAlphaFraction);
                 if (alphaResult) {
-                    alphaResult.textContent = formatNumber(alphaValue, 4);
+                    const alphaPercent = alphaValue * 100;
+                    alphaResult.textContent = `${formatNumber(alphaPercent, 2)}%`;
                 }
                 if (runResult) {
                     runResult.textContent = Number.isFinite(result.run) ? result.run.toString() : '-';
                 }
+                const targetsForTotals = (result && typeof result.targets === 'object') ? result.targets : state.currentTargets;
+                const totalsForResult = result && typeof result.totals === 'object' ? result.totals : null;
+                renderResultTotals(targetsForTotals, totalsForResult);
                 if (bestResultBody && bestResultSection) {
                     const weights = Array.isArray(result.weights) ? result.weights.filter(item => Number.isFinite(item.weight) && item.weight > 0) : [];
                     if (weights.length) {
@@ -914,9 +975,9 @@
 
                 if (runOptimizationButton) {
                     runOptimizationButton.addEventListener('click', async () => {
-                        const baseAlpha = parseFloat(residualInput && residualInput.value);
-                        if (!Number.isFinite(baseAlpha) || baseAlpha < 0) {
-                            alert('Введите корректное значение для "Доля остатка".');
+                        const baseAlphaPercent = parseFloat(residualInput && residualInput.value);
+                        if (!Number.isFinite(baseAlphaPercent) || baseAlphaPercent < 0 || baseAlphaPercent > 100) {
+                            alert('Введите корректное значение для "Доля остатка" в процентах.');
                             return;
                         }
                         const runCount = Math.floor(parseFloat(runCountInput && runCountInput.value));
@@ -933,9 +994,12 @@
                             alert('Выберите продукты для оптимизации.');
                             return;
                         }
+                        const allowZeroWeights = allowZeroWeightsToggle ? !!allowZeroWeightsToggle.checked : true;
+                        const alphaFraction = clampFraction(baseAlphaPercent / 100);
                         const payload = {
-                            residual_share: clampFraction(baseAlpha),
+                            residual_share: alphaFraction,
                             run_count: runCount,
+                            allow_zero_weights: allowZeroWeights,
                             targets: state.currentTargets,
                             products: selectedProducts.map(item => ({
                                 name: item.name,
@@ -961,7 +1025,7 @@
                         runOptimizationButton.textContent = 'Расчёт...';
                         try {
                             const result = await requestOptimization(payload);
-                            displayOptimizationResult(result, baseAlpha);
+                            displayOptimizationResult(result, alphaFraction);
                         } catch (error) {
                             console.error(error);
                             alert(error.message || 'Не удалось выполнить оптимизацию.');
