@@ -733,7 +733,9 @@
                 const totalsForResult = result && typeof result.totals === 'object' ? result.totals : null;
                 renderResultTotals(targetsForTotals, totalsForResult);
                 if (bestResultBody && bestResultSection) {
-                    const weights = Array.isArray(result.weights) ? result.weights.filter(item => Number.isFinite(item.weight) && item.weight > 0) : [];
+                    const weights = Array.isArray(result.weights)
+                        ? result.weights.filter(item => Number.isFinite(item.weight) && item.weight >= 0)
+                        : [];
                     if (weights.length) {
                         weights.sort((a, b) => b.weight - a.weight);
                         bestResultBody.innerHTML = weights.map(item => `<tr><td>${item.name}</td><td>${formatNumber(item.weight)}</td></tr>`).join('');

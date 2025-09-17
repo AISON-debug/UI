@@ -2,7 +2,7 @@ import csv
 import math
 import random
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Optional
+from typing import Dict, Iterable, List, Optional, Set
 
 import numpy as np
 
@@ -120,6 +120,43 @@ def _parse_bool(value: object, default: bool = False) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
     return default
+
+
+def _residual_share_sequence(start_fraction: float) -> List[float]:
+    """Построить последовательность долей остатка с шагом 1% до 100%."""
+
+    try:
+        fraction = float(start_fraction or 0.0)
+    except (TypeError, ValueError):
+        fraction = 0.0
+
+    if not math.isfinite(fraction):
+        fraction = 0.0
+
+    fraction = max(0.0, min(1.0, fraction))
+
+    start_percent = fraction * 100.0
+    shares: List[float] = []
+    seen: Set[float] = set()
+
+    def add_share(value: float) -> None:
+        key = round(value, 6)
+        if key not in seen:
+            seen.add(key)
+            shares.append(value)
+
+    add_share(fraction)
+    next_percent = math.ceil(start_percent)
+    for percent in range(int(next_percent), 101):
+        share_value = percent / 100.0
+        if share_value < fraction:
+            continue
+        add_share(share_value)
+
+    if not shares:
+        shares.append(1.0)
+
+    return shares
 
 
 def load_product_database(csv_path: str = DEFAULT_CSV_PATH) -> Dict[str, Dict[str, float]]:
@@ -242,87 +279,87 @@ def optimise_diet(
 
     target_vector = np.array([targets.get(key, 0.0) for key in NUTRIENT_ORDER], dtype=float)
     target_calories = float(targets.get('calories', 0.0))
-    residual_share = max(0.0, min(1.0, float(residual_share)))
+    residual_sequence = _residual_share_sequence(residual_share)
 
     best_score = math.inf
     best_run = 0
-    best_alpha = 0.0
+    best_share = residual_sequence[0] if residual_sequence else 0.0
     best_weights: List[float] = []
     best_totals: Dict[str, float] = {}
 
-    for run_index in range(1, run_count + 1):
-        alpha_candidate = residual_share * (run_index / run_count)
-        totals = {key: 0.0 for key in NUTRIENT_ORDER}
-        totals['calories'] = 0.0
-        weights: List[float] = []
+    for share_fraction in residual_sequence:
+        for run_index in range(1, run_count + 1):
+            totals = {key: 0.0 for key in NUTRIENT_ORDER}
+            totals['calories'] = 0.0
+            weights: List[float] = []
 
-        for product in products:
-            if product.max_weight <= 0:
-                weights.append(0.0)
-                continue
+            for product in products:
+                if product.max_weight <= 0:
+                    weights.append(0.0)
+                    continue
 
-            min_weight = 0.0
-            if (
-                not allow_zero_weights
-                and not product.fix_weight
-                and product.max_weight > 0
-            ):
-                if product.step > 0:
-                    min_weight = min(product.step, product.max_weight)
+                min_weight = 0.0
+                if (
+                    not allow_zero_weights
+                    and not product.fix_weight
+                    and product.max_weight > 0
+                ):
+                    if product.step > 0:
+                        min_weight = min(product.step, product.max_weight)
+                    else:
+                        min_weight = min(product.max_weight, 1.0)
+                    if min_weight <= 0:
+                        min_weight = product.max_weight
+
+                if product.fix_weight:
+                    weight = product.resolved_fixed_weight()
                 else:
-                    min_weight = min(product.max_weight, 1.0)
-                if min_weight <= 0:
-                    min_weight = product.max_weight
+                    candidate = (
+                        product.max_weight * random.random() * share_fraction
+                        if share_fraction > 0
+                        else 0.0
+                    )
+                    weight = _quantize_weight(
+                        candidate,
+                        product.step,
+                        product.max_weight,
+                        min_weight=min_weight,
+                    )
 
-            if product.fix_weight:
-                weight = product.resolved_fixed_weight()
-            else:
-                candidate = (
-                    product.max_weight * random.random() * alpha_candidate
-                    if alpha_candidate > 0
-                    else 0.0
-                )
-                weight = _quantize_weight(
-                    candidate,
-                    product.step,
-                    product.max_weight,
-                    min_weight=min_weight,
-                )
+                weights.append(weight)
+                weight_factor = weight / 100.0
+                for key in NUTRIENT_ORDER:
+                    totals[key] += product.nutrients.get(key, 0.0) * weight_factor
+                kcal_value = product.nutrients.get('kcal')
+                if kcal_value is None:
+                    fats = product.nutrients.get('saturated', 0.0) + product.nutrients.get('unsaturated', 0.0)
+                    carbs = (
+                        product.nutrients.get('simple', 0.0)
+                        + product.nutrients.get('complex', 0.0)
+                        + product.nutrients.get('soluble', 0.0)
+                        + product.nutrients.get('insoluble', 0.0)
+                    )
+                    kcal_value = compute_calories((product.nutrients.get('proteins', 0.0), fats, carbs))
+                totals['calories'] += kcal_value * weight_factor
 
-            weights.append(weight)
-            weight_factor = weight / 100.0
-            for key in NUTRIENT_ORDER:
-                totals[key] += product.nutrients.get(key, 0.0) * weight_factor
-            kcal_value = product.nutrients.get('kcal')
-            if kcal_value is None:
-                fats = product.nutrients.get('saturated', 0.0) + product.nutrients.get('unsaturated', 0.0)
-                carbs = (
-                    product.nutrients.get('simple', 0.0)
-                    + product.nutrients.get('complex', 0.0)
-                    + product.nutrients.get('soluble', 0.0)
-                    + product.nutrients.get('insoluble', 0.0)
-                )
-                kcal_value = compute_calories((product.nutrients.get('proteins', 0.0), fats, carbs))
-            totals['calories'] += kcal_value * weight_factor
+            predicted_vector = np.array([totals[key] for key in NUTRIENT_ORDER], dtype=float)
+            predicted_calories = totals.get('calories')
+            score = rmse(
+                predicted_vector,
+                target_vector,
+                nutrient_keys=NUTRIENT_ORDER,
+                calorie_weight=calorie_weight,
+                predicted_calories=predicted_calories if predicted_calories else None,
+                target_calories=target_calories if target_calories else None,
+            )
+            score = float(score)
 
-        predicted_vector = np.array([totals[key] for key in NUTRIENT_ORDER], dtype=float)
-        predicted_calories = totals.get('calories')
-        score = rmse(
-            predicted_vector,
-            target_vector,
-            nutrient_keys=NUTRIENT_ORDER,
-            calorie_weight=calorie_weight,
-            predicted_calories=predicted_calories if predicted_calories else None,
-            target_calories=target_calories if target_calories else None,
-        )
-        score = float(score)
-
-        if score < best_score:
-            best_score = score
-            best_run = run_index
-            best_alpha = alpha_candidate
-            best_weights = weights.copy()
-            best_totals = totals.copy()
+            if score < best_score:
+                best_score = score
+                best_run = run_index
+                best_share = share_fraction
+                best_weights = weights.copy()
+                best_totals = totals.copy()
 
     weight_summary = [
         {'name': product.name, 'weight': round(weight, 2)}
@@ -335,7 +372,7 @@ def optimise_diet(
     return {
         'rmse': round(best_score, 6) if math.isfinite(best_score) else 0.0,
         'run': best_run,
-        'residual_share': round(best_alpha, 6),
+        'residual_share': round(best_share, 6),
         'weights': weight_summary,
         'totals': result_totals,
     }
