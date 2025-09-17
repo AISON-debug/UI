@@ -1,0 +1,1124 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Продукты</title>
+    <style>
+        .hidden {
+            display: none !important;
+        }
+        #db { margin-top: 10px; }
+        table { border-collapse: collapse; margin-top: 10px; }
+        th, td { border: 1px solid #ccc; padding: 4px; text-align: center; }
+        .detailed-col { display: table-cell; }
+        .collapsed-only { display: none; }
+        .max-weight { padding: 2px 4px; }
+        .optimized-row { background-color: #ccffcc; }
+        .fix-weight-active { background-color: #ffb6c1; }
+        #open-calculator { margin-top: 12px; }
+        #optimization-controls {
+            margin-top: 12px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            align-items: center;
+        }
+        #optimization-controls .optimization-field {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+        #optimization-controls input[type="number"] {
+            width: 90px;
+            padding: 2px 4px;
+        }
+        #optimization-results {
+            margin-top: 10px;
+        }
+        #optimization-results.hidden {
+            display: none;
+        }
+        #optimization-results .result-row {
+            margin-top: 4px;
+        }
+        #target-summary {
+            margin-top: 12px;
+        }
+        #target-summary table,
+        #result-totals table,
+        #best-result table {
+            width: 100%;
+        }
+        #result-totals {
+            margin-top: 16px;
+        }
+        #best-result {
+            margin-top: 16px;
+        }
+        dialog {
+            border: none;
+            border-radius: 16px;
+            padding: 0;
+            max-width: min(720px, 96vw);
+        }
+        dialog::backdrop {
+            background: rgba(0, 0, 0, 0.35);
+        }
+        #calculatorContainer {
+            font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+        }
+        #calculatorContainer .card {
+            width: min(680px, 96vw);
+            background: #f3f4f6;
+            border: 1px solid #e5e7eb;
+            border-radius: 16px;
+            box-shadow: 0 6px 28px rgba(0,0,0,.08);
+            padding: 18px 16px 18px;
+        }
+        #calculatorContainer .muted { margin: 0 0 10px 0; color: #6b7280; font-size: 13px; }
+        #calculatorContainer .grid { display: grid; gap: 12px; }
+        #calculatorContainer .cols-2 { grid-template-columns: 1fr 1fr; }
+        #calculatorContainer .field {
+            display: grid; gap: 6px;
+            background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 10px;
+        }
+        #calculatorContainer .field label { font-size: 13px; color: #6b7280; }
+        #calculatorContainer .row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; }
+        #calculatorContainer .slider {
+            -webkit-appearance: none; appearance: none; width: 100%; height: 6px;
+            background: linear-gradient(90deg, #0ea5e9, #0ea5e9);
+            background-size: 50% 100%; background-repeat: no-repeat; background-color: #e5e7eb; border-radius: 999px;
+            outline: none;
+        }
+        #calculatorContainer .slider::-webkit-slider-thumb {
+            -webkit-appearance: none; appearance: none; width: 20px; height: 20px; border-radius: 50%; background: #0ea5e9;
+            border: 2px solid #fff; box-shadow: 0 2px 8px rgba(0,0,0,.2);
+        }
+        #calculatorContainer .slider::-moz-range-thumb { width: 20px; height: 20px; border-radius: 50%; background: #0ea5e9; border: 2px solid #fff; }
+        #calculatorContainer .value {
+            min-width: 86px; text-align: right; font-weight: 700; font-size: 18px;
+            padding: 6px 10px; background: #fff; border: 1px solid #e5e7eb; border-radius: 10px;
+        }
+        #calculatorContainer .osso-box {
+            display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center;
+            background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 12px;
+        }
+        #calculatorContainer .osso-title { font-size: 14px; color: #6b7280; margin: 0; }
+        #calculatorContainer .osso-value { font-weight: 800; font-size: 22px; }
+        #calculatorContainer table {
+            width: 100%; border-collapse: collapse; margin-top: 8px; background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden;
+        }
+        #calculatorContainer th,
+        #calculatorContainer td { padding: 10px 12px; border-bottom: 1px solid #e5e7eb; font-size: 14px; text-align: left; }
+        #calculatorContainer tr:last-child td { border-bottom: none; }
+        #calculatorContainer .buttons { display: none; }
+        #calculator-dialog .modal-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+            padding: 12px 16px 16px;
+            background: #f9fafb;
+            border-top: 1px solid #e5e7eb;
+            border-bottom-left-radius: 16px;
+            border-bottom-right-radius: 16px;
+        }
+        #calculator-dialog .modal-actions button {
+            padding: 8px 16px;
+            border-radius: 10px;
+            border: 1px solid #d1d5db;
+            background: #0ea5e9;
+            color: #fff;
+            cursor: pointer;
+        }
+        #calculator-dialog .modal-actions button#calculator-cancel {
+            background: #fff;
+            color: #111;
+        }
+    </style>
+</head>
+<body>
+    <label><input type="checkbox" id="toggle-expanded" checked> Развернутая таблица нутриентов</label>
+    <label><input type="checkbox" id="toggle-hide-db"> Скрыть базу данных</label>
+    <button type="button" id="open-calculator">Калькулятор ОСО</button>
+    <section id="target-summary" class="hidden">
+        <h3>Целевые показатели (из калькулятора)</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Показатель</th>
+                    <th>Значение</th>
+                </tr>
+            </thead>
+            <tbody id="target-summary-body"></tbody>
+        </table>
+    </section>
+    <dialog id="calculator-dialog">
+        <div id="calculatorContainer" class="tg-theme">
+            <div class="card">
+                <h1>Питательный калькулятор</h1>
+                <p class="muted">Рассчитайте целевые значения нутриентов и калоража. Итоги отображаются в таблице.</p>
+                <section class="grid cols-2" style="margin-top: 6px;">
+                    <div class="field">
+                        <label for="sex">Пол</label>
+                        <select id="sex">
+                            <option value="Мужской">Мужской</option>
+                            <option value="Женский">Женский</option>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label for="activity">Уровень активности</label>
+                        <select id="activity"></select>
+                    </div>
+                    <div class="field">
+                        <label for="weight">Вес (кг)</label>
+                        <input id="weight" type="number" inputmode="decimal" min="20" max="300" step="0.1" value="67">
+                    </div>
+                    <div class="field">
+                        <label for="height">Рост (см)</label>
+                        <input id="height" type="number" inputmode="decimal" min="100" max="250" step="0.5" value="185">
+                    </div>
+                    <div class="field">
+                        <label for="age">Возраст</label>
+                        <input id="age" type="number" inputmode="numeric" min="10" max="100" step="1" value="26">
+                    </div>
+                    <div class="osso-box">
+                        <div>
+                            <p class="osso-title">Основной суточный обмен (ОСО)</p>
+                            <div id="ossoExplain" class="muted" style="font-size:12px;"></div>
+                        </div>
+                        <div id="osso" class="osso-value">0.0 ккал</div>
+                    </div>
+                </section>
+                <section class="grid" style="margin-top: 14px;">
+                    <div class="row">
+                        <div class="field">
+                            <label>Белки (% от калоража: 20–35)</label>
+                            <input id="pProtein" class="slider" type="range" min="20" max="35" step="1" value="25">
+                        </div>
+                        <div id="vProtein" class="value">25%</div>
+                    </div>
+                    <div class="row">
+                        <div class="field">
+                            <label>Жиры насыщённые (%: 5–10)</label>
+                            <input id="pFatSat" class="slider" type="range" min="5" max="10" step="1" value="8">
+                        </div>
+                        <div id="vFatSat" class="value">8%</div>
+                    </div>
+                    <div class="row">
+                        <div class="field">
+                            <label>Жиры ненасыщённые (%: 12–25)</label>
+                            <input id="pFatUnsat" class="slider" type="range" min="12" max="25" step="1" value="18">
+                        </div>
+                        <div id="vFatUnsat" class="value">18%</div>
+                    </div>
+                    <div class="row">
+                        <div class="field">
+                            <label>Углеводы простые (%: 5–10)</label>
+                            <input id="pCarbSimple" class="slider" type="range" min="5" max="10" step="1" value="7">
+                        </div>
+                        <div id="vCarbSimple" class="value">7%</div>
+                    </div>
+                </section>
+                <section class="grid cols-2" style="margin-top: 14px;">
+                    <div class="field">
+                        <label for="fiberTotal">Общая клетчатка (г)</label>
+                        <input id="fiberTotal" type="number" inputmode="numeric" min="0" max="200" step="1" value="25">
+                    </div>
+                    <div class="field">
+                        <label for="fiberRatio">Соотношение клетчатки (Растворимая : Нерастворимая)</label>
+                        <div class="row">
+                            <input id="fiberRatio" class="slider" type="range" min="2.0" max="3.0" step="0.1" value="2.5">
+                            <div id="vFiberRatio" class="value">1 : 2.5</div>
+                        </div>
+                        <div class="muted">Растворимая — всегда 1; Нерастворимая — ползунок.</div>
+                    </div>
+                </section>
+                <section style="margin-top: 12px;">
+                    <table>
+                        <thead>
+                            <tr><th>Показатель</th><th class="right">Значение</th></tr>
+                        </thead>
+                        <tbody id="summary"></tbody>
+                    </table>
+                </section>
+            </div>
+        </div>
+        <div class="modal-actions">
+            <button type="button" id="calculator-ok">ОК</button>
+            <button type="button" id="calculator-cancel">Отмена</button>
+        </div>
+    </dialog>
+    <table id="db">
+        <thead>
+            <tr>
+                <th>Добавить</th>
+                <th>Продукт</th>
+                <th>Белки</th>
+                <th class="collapsed-only">Жиры</th>
+                <th class="collapsed-only">Углеводы</th>
+                <th class="detailed-col">Насыщенные</th>
+                <th class="detailed-col">НЕнасыщенные</th>
+                <th class="detailed-col">Простые</th>
+                <th class="detailed-col">Сложные</th>
+                <th class="detailed-col">Растворимая</th>
+                <th class="detailed-col">Нерастворимая</th>
+                <th>ККал</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+    <h2>Мой пул</h2>
+    <table id="pool">
+        <thead>
+            <tr>
+                <th>Удалить</th>
+                <th>На оптимизацию</th>
+                <th>Продукт</th>
+                <th>Белки</th>
+                <th class="collapsed-only">Жиры</th>
+                <th class="collapsed-only">Углеводы</th>
+                <th class="detailed-col">Насыщенные</th>
+                <th class="detailed-col">НЕнасыщенные</th>
+                <th class="detailed-col">Простые</th>
+                <th class="detailed-col">Сложные</th>
+                <th class="detailed-col">Растворимая</th>
+                <th class="detailed-col">Нерастворимая</th>
+                <th>ККал</th>
+                <th>Макс. порций</th>
+                <th>Шаг</th>
+                <th>Допустимый вес Max.</th>
+                <th>фикс. вес</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+    <div id="optimization-controls">
+        <div class="optimization-field">
+            <label for="residual-share">Доля остатка (%)</label>
+            <input type="number" id="residual-share" min="0" max="100" step="1" value="50">
+        </div>
+        <div class="optimization-field">
+            <label for="run-count">Количество прогонов</label>
+            <input type="number" id="run-count" min="1" step="1" value="10">
+        </div>
+        <div class="optimization-field">
+            <label>
+                <input type="checkbox" id="allow-zero-weights" checked>
+                Разрешить нулевой вес продуктов
+            </label>
+        </div>
+        <button type="button" id="run-optimization">Рассчитать оптимальный рацион</button>
+    </div>
+    <div id="optimization-results" class="hidden">
+        <div class="result-row"><strong>RMSE:</strong> <span id="rmse-result">-</span></div>
+        <div class="result-row"><strong>Доля остатка (%):</strong> <span id="alpha-result">-</span></div>
+        <div class="result-row"><strong>Прогон:</strong> <span id="run-result">-</span></div>
+    </div>
+    <div id="result-totals" class="hidden">
+        <h3>Сравнение целевых и расчётных нутриентов</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Нутриенты</th>
+                    <th>Целевые</th>
+                    <th>Расчёт</th>
+                </tr>
+            </thead>
+            <tbody id="result-totals-body"></tbody>
+        </table>
+    </div>
+    <div id="best-result" class="hidden">
+        <h3>Продукты с минимальным RMSE</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Продукт</th>
+                    <th>Вес (г)</th>
+                </tr>
+            </thead>
+            <tbody id="best-result-body"></tbody>
+        </table>
+    </div>
+
+        <script>
+        (function() {
+            'use strict';
+
+            const NUTRIENT_KEYS = ['proteins', 'saturated', 'unsaturated', 'simple', 'complex', 'soluble', 'insoluble'];
+            const SUMMARY_LABELS = {
+                proteins: 'Белки',
+                saturated: 'Жиры насыщенные',
+                unsaturated: 'Жиры ненасыщенные',
+                simple: 'Углеводы простые',
+                complex: 'Углеводы сложные перевариваемые',
+                soluble: 'Клетчатка растворимая',
+                insoluble: 'Клетчатка нерастворимая',
+                calories: 'ККал'
+            };
+            const SUMMARY_NAME_MAP = new Map([
+                ['Белки', 'proteins'],
+                ['Жиры насыщенные', 'saturated'],
+                ['Жиры ненасыщенные', 'unsaturated'],
+                ['Углеводы простые', 'simple'],
+                ['Углеводы сложные перевариваемые', 'complex'],
+                ['Клетчатка растворимая', 'soluble'],
+                ['Клетчатка нерастворимая', 'insoluble'],
+                ['ККал', 'calories']
+            ]);
+            const API_ENDPOINT = 'api/optimize';
+
+            const state = {
+                products: {},
+                optimizationList: new Set(),
+                currentTargets: null
+            };
+
+            function formatNumber(value, fractionDigits = 2) {
+                const number = Number(value);
+                if (!Number.isFinite(number)) {
+                    return '0';
+                }
+                return parseFloat(number.toFixed(fractionDigits)).toString();
+            }
+
+            function clampFraction(value) {
+                if (!Number.isFinite(value)) {
+                    return 0;
+                }
+                if (value < 0) {
+                    return 0;
+                }
+                if (value > 1) {
+                    return 1;
+                }
+                return value;
+            }
+
+            const dbTable = document.getElementById('db');
+            const dbBody = dbTable ? dbTable.querySelector('tbody') : null;
+            const poolTable = document.getElementById('pool');
+            const poolBody = poolTable ? poolTable.querySelector('tbody') : null;
+            const expandedToggle = document.getElementById('toggle-expanded');
+            const hideDbToggle = document.getElementById('toggle-hide-db');
+            const residualInput = document.getElementById('residual-share');
+            const runCountInput = document.getElementById('run-count');
+            const runOptimizationButton = document.getElementById('run-optimization');
+            const optimizationResults = document.getElementById('optimization-results');
+            const rmseResult = document.getElementById('rmse-result');
+            const alphaResult = document.getElementById('alpha-result');
+            const runResult = document.getElementById('run-result');
+            const resultTotalsSection = document.getElementById('result-totals');
+            const resultTotalsBody = document.getElementById('result-totals-body');
+            const bestResultSection = document.getElementById('best-result');
+            const bestResultBody = document.getElementById('best-result-body');
+            const targetSummarySection = document.getElementById('target-summary');
+            const targetSummaryBody = document.getElementById('target-summary-body');
+            const openCalculatorButton = document.getElementById('open-calculator');
+            const calculatorDialog = document.getElementById('calculator-dialog');
+            const calculatorOkButton = document.getElementById('calculator-ok');
+            const calculatorCancelButton = document.getElementById('calculator-cancel');
+            const allowZeroWeightsToggle = document.getElementById('allow-zero-weights');
+
+            let calculatorSummaryBody = null;
+            let updateCalculatorSummary = null;
+
+            function formatValueWithUnit(value, key) {
+                const unit = key === 'calories' ? 'ккал' : 'г';
+                const numeric = Number(value);
+                if (!Number.isFinite(numeric)) {
+                    return '—';
+                }
+                return `${formatNumber(numeric)}&nbsp;${unit}`;
+            }
+
+            function resetOptimizationResults() {
+                if (optimizationResults) {
+                    optimizationResults.classList.add('hidden');
+                }
+                if (rmseResult) {
+                    rmseResult.textContent = '-';
+                }
+                if (alphaResult) {
+                    alphaResult.textContent = '-';
+                }
+                if (runResult) {
+                    runResult.textContent = '-';
+                }
+                renderResultTotals(null, null);
+                if (bestResultSection) {
+                    bestResultSection.classList.add('hidden');
+                }
+                if (bestResultBody) {
+                    bestResultBody.innerHTML = '';
+                }
+            }
+
+            function renderTargetSummary(targets) {
+                if (!targetSummarySection || !targetSummaryBody) {
+                    return;
+                }
+                if (!targets) {
+                    targetSummarySection.classList.add('hidden');
+                    targetSummaryBody.innerHTML = '';
+                    return;
+                }
+                const order = ['proteins', 'saturated', 'unsaturated', 'simple', 'complex', 'soluble', 'insoluble', 'calories'];
+                const rows = order.map(key => {
+                    const label = SUMMARY_LABELS[key] || key;
+                    const value = formatValueWithUnit(targets[key], key);
+                    return `<tr><td>${label}</td><td class="right">${value}</td></tr>`;
+                }).join('');
+                targetSummaryBody.innerHTML = rows;
+                targetSummarySection.classList.remove('hidden');
+            }
+
+            function renderResultTotals(targets, totals) {
+                if (!resultTotalsSection || !resultTotalsBody) {
+                    return;
+                }
+                if (!targets || !totals || typeof targets !== 'object' || typeof totals !== 'object') {
+                    resultTotalsSection.classList.add('hidden');
+                    resultTotalsBody.innerHTML = '';
+                    return;
+                }
+                const order = [...NUTRIENT_KEYS, 'calories'];
+                const rows = order.map(key => {
+                    const label = SUMMARY_LABELS[key] || key;
+                    const targetValue = formatValueWithUnit(targets[key], key);
+                    const totalValue = formatValueWithUnit(totals[key], key);
+                    return `<tr><td>${label}</td><td>${targetValue}</td><td>${totalValue}</td></tr>`;
+                }).join('');
+                resultTotalsBody.innerHTML = rows;
+                resultTotalsSection.classList.remove('hidden');
+            }
+
+            function extractTargetsFromSummary(summaryElement) {
+                if (!summaryElement) {
+                    return null;
+                }
+                const values = {};
+                SUMMARY_NAME_MAP.forEach((key) => {
+                    values[key] = null;
+                });
+                summaryElement.querySelectorAll('tr').forEach(row => {
+                    const cells = row.querySelectorAll('td');
+                    if (cells.length !== 2) {
+                        return;
+                    }
+                    const name = cells[0].textContent.trim();
+                    const key = SUMMARY_NAME_MAP.get(name);
+                    if (!key) {
+                        return;
+                    }
+                    const numeric = parseFloat(cells[1].textContent.replace(/[^0-9.,-]/g, '').replace(',', '.'));
+                    if (Number.isFinite(numeric)) {
+                        values[key] = numeric;
+                    }
+                });
+                const result = {};
+                let hasValid = false;
+                SUMMARY_NAME_MAP.forEach((key) => {
+                    const value = values[key];
+                    if (Number.isFinite(value)) {
+                        result[key] = value;
+                        hasValid = true;
+                    }
+                });
+                return hasValid ? result : null;
+            }
+
+            function updateNutrientVisibility() {
+                const expanded = expandedToggle ? expandedToggle.checked : true;
+                document.querySelectorAll('.detailed-col').forEach(cell => {
+                    cell.style.display = expanded ? 'table-cell' : 'none';
+                });
+                document.querySelectorAll('.collapsed-only').forEach(cell => {
+                    cell.style.display = expanded ? 'none' : 'table-cell';
+                });
+            }
+
+            function updateDbVisibility() {
+                if (!dbTable) {
+                    return;
+                }
+                dbTable.style.display = hideDbToggle && hideDbToggle.checked ? 'none' : 'table';
+            }
+
+            function gatherOptimizationProducts() {
+                if (!poolBody) {
+                    return [];
+                }
+                const selected = [];
+                poolBody.querySelectorAll('tr').forEach(row => {
+                    const optimizeCheckbox = row.querySelector('.optimize');
+                    if (!optimizeCheckbox || !optimizeCheckbox.checked) {
+                        return;
+                    }
+                    const name = row.getAttribute('data-name');
+                    if (!name || !state.products[name]) {
+                        return;
+                    }
+                    const stepInput = row.querySelector('.step');
+                    const maxPortionsInput = row.querySelector('.max-portions');
+                    const fixCheckbox = row.querySelector('.fix-weight');
+                    const stepValue = parseFloat(stepInput && stepInput.value) || 0;
+                    const maxPortionsValue = parseFloat(maxPortionsInput && maxPortionsInput.value) || 0;
+                    const maxWeight = stepValue * maxPortionsValue;
+                    const fixedWeight = fixCheckbox && fixCheckbox.checked ? maxWeight : 0;
+                    selected.push({
+                        name,
+                        step: stepValue,
+                        max_weight: maxWeight,
+                        fix_weight: Boolean(fixCheckbox && fixCheckbox.checked),
+                        fixed_weight: fixedWeight,
+                        nutrients: state.products[name]
+                    });
+                });
+                return selected;
+            }
+
+            function addToPool(name) {
+                if (!poolBody) {
+                    return;
+                }
+                const existing = document.querySelector(`#pool tbody tr[data-name="${name}"]`);
+                if (existing) {
+                    alert('Продукт уже в пуле');
+                    return;
+                }
+                const data = state.products[name] || {};
+                const defaultMax = 10;
+                const defaultStep = 10;
+                const tr = document.createElement('tr');
+                tr.setAttribute('data-name', name);
+                const proteinsDisplay = formatNumber(data.proteins || 0);
+                const fatsDisplay = formatNumber(data.fats || 0);
+                const carbsDisplay = formatNumber(data.carbs || 0);
+                const kcalDisplay = formatNumber(data.kcal || 0);
+                const saturatedDisplay = formatNumber(data.saturated || 0);
+                const unsaturatedDisplay = formatNumber(data.unsaturated || 0);
+                const simpleDisplay = formatNumber(data.simple || 0);
+                const complexDisplay = formatNumber(data.complex || 0);
+                const solubleDisplay = formatNumber(data.soluble || 0);
+                const insolubleDisplay = formatNumber(data.insoluble || 0);
+
+                tr.innerHTML = `
+                    <td><button type="button" class="remove-from-pool">-</button></td>
+                    <td><input type="checkbox" class="optimize"></td>
+                    <td>${name}</td>
+                    <td>${proteinsDisplay}</td>
+                    <td class="collapsed-only">${fatsDisplay}</td>
+                    <td class="collapsed-only">${carbsDisplay}</td>
+                    <td class="detailed-col">${saturatedDisplay}</td>
+                    <td class="detailed-col">${unsaturatedDisplay}</td>
+                    <td class="detailed-col">${simpleDisplay}</td>
+                    <td class="detailed-col">${complexDisplay}</td>
+                    <td class="detailed-col">${solubleDisplay}</td>
+                    <td class="detailed-col">${insolubleDisplay}</td>
+                    <td>${kcalDisplay}</td>
+                    <td><input type="number" class="max-portions" min="0" step="1" value="${defaultMax}"></td>
+                    <td><input type="number" class="step" min="0" step="0.1" value="${defaultStep}"></td>
+                    <td class="max-weight"><span class="weight-value">0</span></td>
+                    <td class="fix-weight-cell"><input type="checkbox" class="fix-weight"></td>
+                `;
+                poolBody.appendChild(tr);
+                updateNutrientVisibility();
+
+                const removeButton = tr.querySelector('.remove-from-pool');
+                const maxPortionsInput = tr.querySelector('.max-portions');
+                const stepInput = tr.querySelector('.step');
+                const weightValue = tr.querySelector('.weight-value');
+                const fixCheckbox = tr.querySelector('.fix-weight');
+                const fixWeightCell = tr.querySelector('.fix-weight-cell');
+                const maxWeightCell = tr.querySelector('.max-weight');
+                const optimizeCheckbox = tr.querySelector('.optimize');
+
+                function updateWeight() {
+                    const maxPortions = parseFloat(maxPortionsInput.value) || 0;
+                    const step = parseFloat(stepInput.value) || 0;
+                    const weight = maxPortions * step;
+                    weightValue.textContent = (Math.round(weight * 10) / 10).toFixed(1);
+                    resetOptimizationResults();
+                }
+
+                removeButton.addEventListener('click', () => {
+                    removeFromPool(name);
+                });
+
+                maxPortionsInput.addEventListener('input', updateWeight);
+                stepInput.addEventListener('input', updateWeight);
+                updateWeight();
+
+                function updateFixWeightStyles() {
+                    if (fixCheckbox.checked) {
+                        maxWeightCell.classList.add('fix-weight-active');
+                        fixWeightCell.classList.add('fix-weight-active');
+                    } else {
+                        maxWeightCell.classList.remove('fix-weight-active');
+                        fixWeightCell.classList.remove('fix-weight-active');
+                    }
+                    resetOptimizationResults();
+                }
+
+                fixCheckbox.addEventListener('change', updateFixWeightStyles);
+                updateFixWeightStyles();
+
+                function updateOptimizeState() {
+                    if (optimizeCheckbox.checked) {
+                        state.optimizationList.add(name);
+                        tr.classList.add('optimized-row');
+                    } else {
+                        state.optimizationList.delete(name);
+                        tr.classList.remove('optimized-row');
+                    }
+                    resetOptimizationResults();
+                }
+
+                optimizeCheckbox.addEventListener('change', updateOptimizeState);
+                updateOptimizeState();
+            }
+
+            function removeFromPool(name) {
+                const row = document.querySelector(`#pool tbody tr[data-name="${name}"]`);
+                if (row) {
+                    row.remove();
+                }
+                state.optimizationList.delete(name);
+                resetOptimizationResults();
+            }
+
+            async function requestOptimization(payload) {
+                const response = await fetch(API_ENDPOINT, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                });
+                let data = null;
+                try {
+                    data = await response.json();
+                } catch (error) {
+                    data = null;
+                }
+                if (!response.ok) {
+                    const message = data && data.error ? data.error : 'Ошибка при расчёте рациона.';
+                    throw new Error(message);
+                }
+                return data;
+            }
+
+            function displayOptimizationResult(result, requestedAlphaFraction) {
+                if (!result) {
+                    resetOptimizationResults();
+                    return;
+                }
+                if (optimizationResults) {
+                    optimizationResults.classList.remove('hidden');
+                }
+                if (rmseResult) {
+                    rmseResult.textContent = formatNumber(result.rmse ?? 0, 4);
+                }
+                const alphaValue = Number.isFinite(result.residual_share)
+                    ? Number(result.residual_share)
+                    : clampFraction(requestedAlphaFraction);
+                if (alphaResult) {
+                    const alphaPercent = alphaValue * 100;
+                    alphaResult.textContent = `${formatNumber(alphaPercent, 2)}%`;
+                }
+                if (runResult) {
+                    runResult.textContent = Number.isFinite(result.run) ? result.run.toString() : '-';
+                }
+                const targetsForTotals = (result && typeof result.targets === 'object') ? result.targets : state.currentTargets;
+                const totalsForResult = result && typeof result.totals === 'object' ? result.totals : null;
+                renderResultTotals(targetsForTotals, totalsForResult);
+                if (bestResultBody && bestResultSection) {
+                    const weights = Array.isArray(result.weights)
+                        ? result.weights.filter(item => Number.isFinite(item.weight) && item.weight >= 0)
+                        : [];
+                    if (weights.length) {
+                        weights.sort((a, b) => b.weight - a.weight);
+                        bestResultBody.innerHTML = weights.map(item => `<tr><td>${item.name}</td><td>${formatNumber(item.weight)}</td></tr>`).join('');
+                    } else {
+                        bestResultBody.innerHTML = '<tr><td colspan="2">Данные отсутствуют</td></tr>';
+                    }
+                    bestResultSection.classList.remove('hidden');
+                }
+            }
+
+            function hasValidTargets(targets) {
+                if (!targets) {
+                    return false;
+                }
+                const requiredKeys = ['proteins', 'saturated', 'unsaturated', 'simple', 'complex', 'soluble', 'insoluble', 'calories'];
+                return requiredKeys.every(key => Number.isFinite(Number(targets[key])));
+            }
+
+            function setupCalculator() {
+                if (!calculatorDialog) {
+                    return;
+                }
+                const container = calculatorDialog.querySelector('#calculatorContainer');
+                if (!container) {
+                    return;
+                }
+                const SEX_ADD = {
+                    'Мужской': 1,
+                    'Женский': -161
+                };
+                const ACTIVITY = [
+                    ['Минимальный (сидячий образ жизни)', 1.2],
+                    ['Низкий (легкие тренировки 1–3 раза в неделю)', 1.375],
+                    ['Умеренный (тренировки 3–5 раз в неделю)', 1.55],
+                    ['Высокий (интенсивные тренировки 6–7 раз в неделю)', 1.725],
+                    ['Экстремальный (профессиональные атлеты, тяжелый физический труд)', 1.9]
+                ];
+
+                const elSex = container.querySelector('#sex');
+                const elAct = container.querySelector('#activity');
+                const elW = container.querySelector('#weight');
+                const elH = container.querySelector('#height');
+                const elA = container.querySelector('#age');
+                const elOSO = container.querySelector('#osso');
+                const elOSOExplain = container.querySelector('#ossoExplain');
+                const elpProt = container.querySelector('#pProtein');
+                const elpSat = container.querySelector('#pFatSat');
+                const elpUns = container.querySelector('#pFatUnsat');
+                const elpSim = container.querySelector('#pCarbSimple');
+                const elvProt = container.querySelector('#vProtein');
+                const elvSat = container.querySelector('#vFatSat');
+                const elvUns = container.querySelector('#vFatUnsat');
+                const elvSim = container.querySelector('#vCarbSimple');
+                const elFibTotal = container.querySelector('#fiberTotal');
+                const elFibRatio = container.querySelector('#fiberRatio');
+                const elvFibRatio = container.querySelector('#vFiberRatio');
+                calculatorSummaryBody = container.querySelector('#summary');
+
+                function fillActivity() {
+                    if (!elAct) {
+                        return;
+                    }
+                    elAct.innerHTML = '';
+                    ACTIVITY.forEach(([label]) => {
+                        const option = document.createElement('option');
+                        option.value = label;
+                        option.textContent = label;
+                        elAct.appendChild(option);
+                    });
+                    elAct.value = 'Низкий (легкие тренировки 1–3 раза в неделю)';
+                }
+
+                function setGradient(range) {
+                    if (!range) {
+                        return;
+                    }
+                    const min = parseFloat(range.min);
+                    const max = parseFloat(range.max);
+                    const value = parseFloat(range.value);
+                    if (!Number.isFinite(min) || !Number.isFinite(max) || !Number.isFinite(value)) {
+                        return;
+                    }
+                    const pct = ((value - min) / (max - min)) * 100;
+                    range.style.backgroundSize = `${pct}% 100%`;
+                }
+
+                function calcOSO(weightKg, heightCm, ageYears, sex, activityLabel) {
+                    const sexAdd = SEX_ADD[sex] ?? -161;
+                    const activityRow = ACTIVITY.find(([label]) => label === activityLabel);
+                    const activityMultiplier = activityRow ? activityRow[1] : 1;
+                    const base = (10 * weightKg) + (6.25 * heightCm) - (5 * ageYears) + sexAdd;
+                    return base * activityMultiplier;
+                }
+
+                function clampValue(value, min, max) {
+                    return Math.min(max, Math.max(min, value));
+                }
+
+                function readNumber(input, fallback = 0) {
+                    if (!input) {
+                        return fallback;
+                    }
+                    const parsed = parseFloat(String(input.value || '').replace(',', '.'));
+                    return Number.isFinite(parsed) ? parsed : fallback;
+                }
+
+                function syncUIBits() {
+                    if (elvProt && elpProt) {
+                        elvProt.textContent = `${elpProt.value}%`;
+                    }
+                    if (elvSat && elpSat) {
+                        elvSat.textContent = `${elpSat.value}%`;
+                    }
+                    if (elvUns && elpUns) {
+                        elvUns.textContent = `${elpUns.value}%`;
+                    }
+                    if (elvSim && elpSim) {
+                        elvSim.textContent = `${elpSim.value}%`;
+                    }
+                    if (elvFibRatio && elFibRatio) {
+                        elvFibRatio.textContent = `1 : ${parseFloat(elFibRatio.value).toFixed(1)}`;
+                    }
+                    [elpProt, elpSat, elpUns, elpSim, elFibRatio].forEach(setGradient);
+                }
+
+                function updateSummary() {
+                    syncUIBits();
+                    if (!calculatorSummaryBody) {
+                        return;
+                    }
+                    const sex = elSex ? elSex.value : 'Мужской';
+                    const activity = elAct ? elAct.value : ACTIVITY[1][0];
+                    const weight = clampValue(readNumber(elW, 0), 0, 999);
+                    const height = clampValue(readNumber(elH, 0), 0, 999);
+                    const age = clampValue(readNumber(elA, 0), 0, 150);
+
+                    const oso = calcOSO(weight, height, age, sex, activity);
+                    if (elOSO) {
+                        elOSO.textContent = `${(Math.round(oso * 10) / 10).toFixed(1)} ккал`;
+                    }
+                    if (elOSOExplain) {
+                        const actMultiplier = ACTIVITY.find(([label]) => label === activity)?.[1] || 1;
+                        elOSOExplain.textContent = `((10×${weight}) + (6.25×${height}) − (5×${age}) + ${SEX_ADD[sex] ?? -161}) × ${actMultiplier}`;
+                    }
+
+                    const pProt = elpProt ? parseInt(elpProt.value, 10) / 100 : 0.25;
+                    const pSat = elpSat ? parseInt(elpSat.value, 10) / 100 : 0.08;
+                    const pUns = elpUns ? parseInt(elpUns.value, 10) / 100 : 0.18;
+                    const pSim = elpSim ? parseInt(elpSim.value, 10) / 100 : 0.07;
+
+                    const gProt = Math.round((oso * pProt) / 4);
+                    const gSat = Math.round((oso * pSat) / 9);
+                    const gUns = Math.round((oso * pUns) / 9);
+                    const gSim = Math.round((oso * pSim) / 4);
+
+                    const fibTotal = Math.round(clampValue(readNumber(elFibTotal, 0), 0, 999));
+                    const ratio = parseFloat(elFibRatio ? elFibRatio.value : '2.5');
+                    const gFibSol = Math.round(fibTotal / (1 + ratio));
+                    const gFibIns = Math.round(fibTotal - gFibSol);
+
+                    const kcalUsed = (gProt * 4) + (gSat * 9) + (gUns * 9) + (gSim * 4) + ((gFibSol + gFibIns) * 1.5);
+                    let gComplex = Math.round((oso - kcalUsed) / 4);
+                    if (gComplex < 0) {
+                        gComplex = 0;
+                    }
+                    const kcalFinal = (gProt * 4) + (gSat * 9) + (gUns * 9) + (gSim * 4) + (gComplex * 4) + ((gFibSol + gFibIns) * 1.5);
+                    const rows = [
+                        ['Белки', `${gProt} г`],
+                        ['Жиры насыщенные', `${gSat} г`],
+                        ['Жиры ненасыщенные', `${gUns} г`],
+                        ['Углеводы простые', `${gSim} г`],
+                        ['Углеводы сложные перевариваемые', `${gComplex} г`],
+                        ['Клетчатка растворимая', `${gFibSol} г`],
+                        ['Клетчатка нерастворимая', `${gFibIns} г`],
+                        ['ККал', `${(Math.round(kcalFinal * 10) / 10).toFixed(1)}`]
+                    ];
+                    calculatorSummaryBody.innerHTML = rows.map(([name, value]) => `<tr><td>${name}</td><td class="right">${value}</td></tr>`).join('');
+                }
+
+                updateCalculatorSummary = updateSummary;
+
+                [elSex, elAct, elW, elH, elA, elpProt, elpSat, elpUns, elpSim, elFibTotal, elFibRatio].forEach(element => {
+                    if (element) {
+                        element.addEventListener('input', updateSummary);
+                    }
+                });
+
+                fillActivity();
+                updateSummary();
+
+                const initialTargets = extractTargetsFromSummary(calculatorSummaryBody);
+                if (initialTargets) {
+                    state.currentTargets = initialTargets;
+                    renderTargetSummary(initialTargets);
+                }
+
+                if (openCalculatorButton) {
+                    openCalculatorButton.addEventListener('click', () => {
+                        if (typeof updateCalculatorSummary === 'function') {
+                            updateCalculatorSummary();
+                        }
+                        calculatorDialog.showModal();
+                    });
+                }
+                if (calculatorOkButton) {
+                    calculatorOkButton.addEventListener('click', () => {
+                        if (typeof updateCalculatorSummary === 'function') {
+                            updateCalculatorSummary();
+                        }
+                        const targets = extractTargetsFromSummary(calculatorSummaryBody);
+                        if (targets) {
+                            state.currentTargets = targets;
+                            renderTargetSummary(targets);
+                            resetOptimizationResults();
+                        }
+                        calculatorDialog.close();
+                    });
+                }
+                if (calculatorCancelButton) {
+                    calculatorCancelButton.addEventListener('click', () => {
+                        calculatorDialog.close();
+                    });
+                }
+                calculatorDialog.addEventListener('cancel', event => {
+                    event.preventDefault();
+                    calculatorDialog.close();
+                });
+            }
+
+            function initialise() {
+                if (expandedToggle) {
+                    expandedToggle.addEventListener('change', updateNutrientVisibility);
+                }
+                if (hideDbToggle) {
+                    hideDbToggle.addEventListener('change', updateDbVisibility);
+                }
+                updateNutrientVisibility();
+                updateDbVisibility();
+
+                if (runOptimizationButton) {
+                    runOptimizationButton.addEventListener('click', async () => {
+                        const baseAlphaPercent = parseFloat(residualInput && residualInput.value);
+                        if (!Number.isFinite(baseAlphaPercent) || baseAlphaPercent < 0 || baseAlphaPercent > 100) {
+                            alert('Введите корректное значение для "Доля остатка" в процентах.');
+                            return;
+                        }
+                        const runCount = Math.floor(parseFloat(runCountInput && runCountInput.value));
+                        if (!Number.isFinite(runCount) || runCount <= 0) {
+                            alert('Количество прогонов должно быть положительным целым числом.');
+                            return;
+                        }
+                        if (!hasValidTargets(state.currentTargets)) {
+                            alert('Сначала заполните и подтвердите данные в калькуляторе ОСО.');
+                            return;
+                        }
+                        const selectedProducts = gatherOptimizationProducts();
+                        if (!selectedProducts.length) {
+                            alert('Выберите продукты для оптимизации.');
+                            return;
+                        }
+                        const allowZeroWeights = allowZeroWeightsToggle ? !!allowZeroWeightsToggle.checked : true;
+                        const alphaFraction = clampFraction(baseAlphaPercent / 100);
+                        const payload = {
+                            residual_share: alphaFraction,
+                            run_count: runCount,
+                            allow_zero_weights: allowZeroWeights,
+                            targets: state.currentTargets,
+                            products: selectedProducts.map(item => ({
+                                name: item.name,
+                                step: item.step,
+                                max_weight: item.max_weight,
+                                fix_weight: item.fix_weight,
+                                fixed_weight: item.fixed_weight,
+                                nutrients: {
+                                    proteins: item.nutrients.proteins || 0,
+                                    saturated: item.nutrients.saturated || 0,
+                                    unsaturated: item.nutrients.unsaturated || 0,
+                                    simple: item.nutrients.simple || 0,
+                                    complex: item.nutrients.complex || 0,
+                                    soluble: item.nutrients.soluble || 0,
+                                    insoluble: item.nutrients.insoluble || 0,
+                                    kcal: item.nutrients.kcal || 0
+                                }
+                            }))
+                        };
+
+                        const originalLabel = runOptimizationButton.textContent;
+                        runOptimizationButton.disabled = true;
+                        runOptimizationButton.textContent = 'Расчёт...';
+                        try {
+                            const result = await requestOptimization(payload);
+                            displayOptimizationResult(result, alphaFraction);
+                        } catch (error) {
+                            console.error(error);
+                            alert(error.message || 'Не удалось выполнить оптимизацию.');
+                        } finally {
+                            runOptimizationButton.disabled = false;
+                            runOptimizationButton.textContent = originalLabel;
+                        }
+                    });
+                }
+
+                fetch('Nutrients%20DB.csv')
+                    .then(response => response.text())
+                    .then(text => {
+                        const lines = text.trim().split(/\r?\n/);
+                        if (!lines.length) {
+                            return;
+                        }
+                        lines.shift();
+                        lines.forEach(line => {
+                            if (!line) {
+                                return;
+                            }
+                            const rawCols = line.split(',');
+                            if (rawCols.length < 9) {
+                                return;
+                            }
+                            const cols = rawCols.map(value => value.trim());
+                            const rawName = cols[0] || '';
+                            const name = rawName.replace(/^﻿/, '');
+                            if (!name) {
+                                return;
+                            }
+                            const proteins = parseFloat(cols[1]) || 0;
+                            const saturated = parseFloat(cols[2]) || 0;
+                            const unsaturated = parseFloat(cols[3]) || 0;
+                            const simple = parseFloat(cols[4]) || 0;
+                            const complex = parseFloat(cols[5]) || 0;
+                            const soluble = parseFloat(cols[6]) || 0;
+                            const insoluble = parseFloat(cols[7]) || 0;
+                            const kcal = parseFloat(cols[8]) || 0;
+                            const fats = saturated + unsaturated;
+                            const carbs = simple + complex + soluble + insoluble;
+
+                            state.products[name] = {
+                                proteins,
+                                saturated,
+                                unsaturated,
+                                simple,
+                                complex,
+                                soluble,
+                                insoluble,
+                                kcal,
+                                fats,
+                                carbs
+                            };
+
+                            if (!dbBody) {
+                                return;
+                            }
+                            const tr = document.createElement('tr');
+                            tr.innerHTML = `
+                                <td><button type="button" class="add-product">+</button></td>
+                                <td>${name}</td>
+                                <td>${formatNumber(proteins)}</td>
+                                <td class="collapsed-only">${formatNumber(fats)}</td>
+                                <td class="collapsed-only">${formatNumber(carbs)}</td>
+                                <td class="detailed-col">${formatNumber(saturated)}</td>
+                                <td class="detailed-col">${formatNumber(unsaturated)}</td>
+                                <td class="detailed-col">${formatNumber(simple)}</td>
+                                <td class="detailed-col">${formatNumber(complex)}</td>
+                                <td class="detailed-col">${formatNumber(soluble)}</td>
+                                <td class="detailed-col">${formatNumber(insoluble)}</td>
+                                <td>${formatNumber(kcal)}</td>
+                            `;
+                            dbBody.appendChild(tr);
+                            updateNutrientVisibility();
+
+                            const addButton = tr.querySelector('.add-product');
+                            addButton.addEventListener('click', () => {
+                                addToPool(name);
+                            });
+                        });
+                    })
+                    .catch(error => {
+                        console.error('Не удалось загрузить базу продуктов', error);
+                    });
+            }
+
+            setupCalculator();
+            initialise();
+        })();
+    </script>
+</body>
+</html>
