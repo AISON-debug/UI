@@ -134,8 +134,13 @@
             background: #fff;
             color: #111;
         }
-        #generate-random-pool {
+        #random-pool-controls {
             margin: 12px 0;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        #random-pool-controls button {
             padding: 6px 12px;
         }
         #random-pool-dialog {
@@ -323,7 +328,10 @@
         <tbody></tbody>
     </table>
     <h2>Мой пул</h2>
-    <button type="button" id="generate-random-pool">Сгенерировать случайный пул</button>
+    <div id="random-pool-controls">
+        <button type="button" id="configure-random-pool">Настройки генератора случайного пула</button>
+        <button type="button" id="generate-random-pool">Сгенерировать случайный пул</button>
+    </div>
     <dialog id="random-pool-dialog">
         <form method="dialog" id="random-pool-form">
             <div class="random-pool-body">
@@ -334,11 +342,11 @@
                 </label>
                 <label class="random-pool-field" for="random-step-min">
                     <span>rand шаг min</span>
-                    <input type="number" id="random-step-min" min="0.1" step="0.1" value="5">
+                    <input type="number" id="random-step-min" min="1" step="1" value="5">
                 </label>
                 <label class="random-pool-field" for="random-step-max">
                     <span>rand шаг max</span>
-                    <input type="number" id="random-step-max" min="0.1" step="0.1" value="20">
+                    <input type="number" id="random-step-max" min="1" step="1" value="20">
                 </label>
                 <label class="random-pool-field" for="random-max-portions-min">
                     <span>rand Макс_порц min</span>
@@ -453,11 +461,19 @@
                 ['ККал', 'calories']
             ]);
             const API_ENDPOINT = 'api/optimize';
+            const DEFAULT_RANDOM_POOL_CONFIG = {
+                minProducts: 3,
+                stepMin: 5,
+                stepMax: 20,
+                maxPortionsMin: 1,
+                maxPortionsMax: 5
+            };
 
             const state = {
                 products: {},
                 optimizationList: new Set(),
-                currentTargets: null
+                currentTargets: null,
+                randomPoolConfig: { ...DEFAULT_RANDOM_POOL_CONFIG }
             };
 
             function formatNumber(value, fractionDigits = 2) {
@@ -488,13 +504,6 @@
                     return minInt;
                 }
                 return Math.floor(Math.random() * (maxInt - minInt + 1)) + minInt;
-            }
-
-            function getRandomFloat(min, max) {
-                if (max < min) {
-                    return min;
-                }
-                return (Math.random() * (max - min)) + min;
             }
 
             function shuffleArray(source) {
@@ -531,6 +540,7 @@
             const calculatorCancelButton = document.getElementById('calculator-cancel');
             const allowZeroWeightsToggle = document.getElementById('allow-zero-weights');
             const randomPoolButton = document.getElementById('generate-random-pool');
+            const randomPoolSettingsButton = document.getElementById('configure-random-pool');
             const randomPoolDialog = document.getElementById('random-pool-dialog');
             const randomPoolConfirmButton = document.getElementById('random-pool-confirm');
             const randomPoolCancelButton = document.getElementById('random-pool-cancel');
@@ -539,6 +549,75 @@
             const randomStepMaxInput = document.getElementById('random-step-max');
             const randomMaxPortionsMinInput = document.getElementById('random-max-portions-min');
             const randomMaxPortionsMaxInput = document.getElementById('random-max-portions-max');
+
+            function populateRandomPoolInputs(config) {
+                const source = { ...DEFAULT_RANDOM_POOL_CONFIG, ...(config || {}) };
+                if (randomMinProductsInput) {
+                    randomMinProductsInput.value = Number.isInteger(source.minProducts)
+                        ? source.minProducts.toString()
+                        : DEFAULT_RANDOM_POOL_CONFIG.minProducts.toString();
+                }
+                if (randomStepMinInput) {
+                    randomStepMinInput.value = Number.isInteger(source.stepMin)
+                        ? source.stepMin.toString()
+                        : DEFAULT_RANDOM_POOL_CONFIG.stepMin.toString();
+                }
+                if (randomStepMaxInput) {
+                    randomStepMaxInput.value = Number.isInteger(source.stepMax)
+                        ? source.stepMax.toString()
+                        : DEFAULT_RANDOM_POOL_CONFIG.stepMax.toString();
+                }
+                if (randomMaxPortionsMinInput) {
+                    randomMaxPortionsMinInput.value = Number.isInteger(source.maxPortionsMin)
+                        ? source.maxPortionsMin.toString()
+                        : DEFAULT_RANDOM_POOL_CONFIG.maxPortionsMin.toString();
+                }
+                if (randomMaxPortionsMaxInput) {
+                    randomMaxPortionsMaxInput.value = Number.isInteger(source.maxPortionsMax)
+                        ? source.maxPortionsMax.toString()
+                        : DEFAULT_RANDOM_POOL_CONFIG.maxPortionsMax.toString();
+                }
+            }
+
+            function validateRandomPoolConfig(config) {
+                if (!config || typeof config !== 'object') {
+                    return 'Настройки генератора случайного пула не заданы.';
+                }
+                if (!Number.isInteger(config.minProducts) || config.minProducts <= 0) {
+                    return 'Минимальное количество продуктов должно быть целым числом больше нуля.';
+                }
+                if (!Number.isInteger(config.stepMin) || !Number.isInteger(config.stepMax)
+                    || config.stepMin <= 0 || config.stepMax <= 0) {
+                    return 'Введите корректные значения для шага (целые числа больше нуля).';
+                }
+                if (config.stepMin > config.stepMax) {
+                    return 'Значение "rand шаг min" не может быть больше "rand шаг max".';
+                }
+                if (!Number.isInteger(config.maxPortionsMin) || !Number.isInteger(config.maxPortionsMax)
+                    || config.maxPortionsMin <= 0 || config.maxPortionsMax <= 0) {
+                    return 'Введите корректные значения для "Макс. порций" (целые числа больше нуля).';
+                }
+                if (config.maxPortionsMin > config.maxPortionsMax) {
+                    return '"rand Макс_порц min" не может быть больше "rand Макс_порц max".';
+                }
+                return null;
+            }
+
+            function readRandomPoolConfigFromInputs() {
+                const config = {
+                    minProducts: parseInt(randomMinProductsInput && randomMinProductsInput.value, 10),
+                    stepMin: parseInt(randomStepMinInput && randomStepMinInput.value, 10),
+                    stepMax: parseInt(randomStepMaxInput && randomStepMaxInput.value, 10),
+                    maxPortionsMin: parseInt(randomMaxPortionsMinInput && randomMaxPortionsMinInput.value, 10),
+                    maxPortionsMax: parseInt(randomMaxPortionsMaxInput && randomMaxPortionsMaxInput.value, 10)
+                };
+                const validationError = validateRandomPoolConfig(config);
+                if (validationError) {
+                    alert(validationError);
+                    return null;
+                }
+                return config;
+            }
 
             let calculatorSummaryBody = null;
             let updateCalculatorSummary = null;
@@ -1105,8 +1184,11 @@
                 updateNutrientVisibility();
                 updateDbVisibility();
 
-                if (randomPoolButton && randomPoolDialog) {
-                    randomPoolButton.addEventListener('click', () => {
+                populateRandomPoolInputs(state.randomPoolConfig);
+
+                if (randomPoolSettingsButton && randomPoolDialog) {
+                    randomPoolSettingsButton.addEventListener('click', () => {
+                        populateRandomPoolInputs(state.randomPoolConfig);
                         randomPoolDialog.showModal();
                     });
                 }
@@ -1126,47 +1208,38 @@
 
                 if (randomPoolConfirmButton) {
                     randomPoolConfirmButton.addEventListener('click', () => {
+                        const config = readRandomPoolConfigFromInputs();
+                        if (!config) {
+                            return;
+                        }
+                        state.randomPoolConfig = { ...config };
+                        if (randomPoolDialog) {
+                            randomPoolDialog.close();
+                        }
+                    });
+                }
+
+                if (randomPoolButton) {
+                    randomPoolButton.addEventListener('click', () => {
                         const allProducts = Object.keys(state.products);
                         if (!allProducts.length) {
                             alert('База продуктов ещё не загружена.');
                             return;
                         }
 
-                        const minProducts = Math.floor(parseFloat(randomMinProductsInput && randomMinProductsInput.value));
-                        if (!Number.isFinite(minProducts) || minProducts <= 0) {
-                            alert('Введите минимальное количество продуктов (целое число больше нуля).');
+                        const config = state.randomPoolConfig;
+                        const validationError = validateRandomPoolConfig(config);
+                        if (validationError) {
+                            alert(`${validationError} Откройте настройки генератора случайного пула и сохраните значения.`);
                             return;
                         }
-                        if (minProducts > allProducts.length) {
+
+                        if (config.minProducts > allProducts.length) {
                             alert('Минимальное количество продуктов не может превышать размер базы.');
                             return;
                         }
 
-                        const stepMin = parseFloat(randomStepMinInput && randomStepMinInput.value);
-                        const stepMax = parseFloat(randomStepMaxInput && randomStepMaxInput.value);
-                        if (!Number.isFinite(stepMin) || !Number.isFinite(stepMax) || stepMin <= 0 || stepMax <= 0) {
-                            alert('Введите корректные значения для шага (больше нуля).');
-                            return;
-                        }
-                        if (stepMin > stepMax) {
-                            alert('Значение "rand шаг min" не может быть больше "rand шаг max".');
-                            return;
-                        }
-                        const normalizedStepMin = Math.max(0.1, stepMin);
-                        const normalizedStepMax = Math.max(normalizedStepMin, stepMax);
-
-                        const maxPortionsMin = Math.floor(parseFloat(randomMaxPortionsMinInput && randomMaxPortionsMinInput.value));
-                        const maxPortionsMax = Math.floor(parseFloat(randomMaxPortionsMaxInput && randomMaxPortionsMaxInput.value));
-                        if (!Number.isFinite(maxPortionsMin) || !Number.isFinite(maxPortionsMax) || maxPortionsMin <= 0 || maxPortionsMax <= 0) {
-                            alert('Введите корректные значения для "Макс. порций" (целые числа больше нуля).');
-                            return;
-                        }
-                        if (maxPortionsMin > maxPortionsMax) {
-                            alert('"rand Макс_порц min" не может быть больше "rand Макс_порц max".');
-                            return;
-                        }
-
-                        const productCount = getRandomInt(minProducts, allProducts.length);
+                        const productCount = getRandomInt(config.minProducts, allProducts.length);
                         const selectedNames = shuffleArray(allProducts).slice(0, productCount);
                         clearPool();
                         selectedNames.forEach(name => {
@@ -1175,22 +1248,15 @@
                             if (!row) {
                                 return;
                             }
-                            const randomStepRaw = getRandomFloat(normalizedStepMin, normalizedStepMax);
-                            let randomStep = Math.round(randomStepRaw * 10) / 10;
-                            if (randomStep < normalizedStepMin) {
-                                randomStep = normalizedStepMin;
-                            }
-                            if (randomStep > normalizedStepMax) {
-                                randomStep = normalizedStepMax;
-                            }
-                            const randomMaxPortions = getRandomInt(maxPortionsMin, maxPortionsMax);
+                            const randomStep = getRandomInt(config.stepMin, config.stepMax);
+                            const randomMaxPortions = getRandomInt(config.maxPortionsMin, config.maxPortionsMax);
 
                             const stepInput = row.querySelector('.step');
                             const maxPortionsInput = row.querySelector('.max-portions');
                             const optimizeCheckbox = row.querySelector('.optimize');
 
                             if (stepInput) {
-                                stepInput.value = randomStep.toFixed(1);
+                                stepInput.value = randomStep.toString();
                                 stepInput.dispatchEvent(new Event('input', { bubbles: true }));
                             }
                             if (maxPortionsInput) {
@@ -1202,8 +1268,6 @@
                                 optimizeCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
                             }
                         });
-
-                        randomPoolDialog.close();
                     });
                 }
 
