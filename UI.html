@@ -134,7 +134,75 @@
             background: #fff;
             color: #111;
         }
+        #random-pool-controls {
+            margin: 12px 0;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        #random-pool-controls button {
+            padding: 6px 12px;
+        }
+        #random-pool-dialog {
+            border: none;
+            border-radius: 12px;
+            padding: 0;
+            max-width: min(420px, 90vw);
+        }
+        #random-pool-dialog form {
+            margin: 0;
+        }
+        #random-pool-dialog .random-pool-body {
+            padding: 18px 20px 10px;
+            display: grid;
+            gap: 12px;
+            background: #fff;
+        }
+        #random-pool-dialog .random-pool-body h3 {
+            margin: 0;
+        }
+        #random-pool-dialog .random-pool-field {
+            display: grid;
+            gap: 6px;
+        }
+        #random-pool-dialog .random-pool-field span {
+            font-size: 14px;
+            color: #374151;
+        }
+        #random-pool-dialog .random-pool-field input[type="number"] {
+            padding: 6px 8px;
+        }
+        #random-pool-dialog .modal-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+            padding: 12px 16px 16px;
+            background: #f9fafb;
+            border-top: 1px solid #e5e7eb;
+            border-bottom-left-radius: 12px;
+            border-bottom-right-radius: 12px;
+        }
+        #random-pool-dialog .modal-actions button {
+            padding: 8px 16px;
+            border-radius: 10px;
+            border: 1px solid #d1d5db;
+            background: #0ea5e9;
+            color: #fff;
+            cursor: pointer;
+        }
+        #random-pool-dialog .modal-actions button#random-pool-cancel {
+            background: #fff;
+            color: #111;
+        }
+        #optimization-heatmap-wrapper {
+            margin-top: 16px;
+        }
+        #optimization-heatmap {
+            width: 100%;
+            height: 420px;
+        }
     </style>
+    <script src="https://cdn.plot.ly/plotly-2.30.0.min.js"></script>
 </head>
 <body>
     <label><input type="checkbox" id="toggle-expanded" checked> Развернутая таблица нутриентов</label>
@@ -268,6 +336,41 @@
         <tbody></tbody>
     </table>
     <h2>Мой пул</h2>
+    <div id="random-pool-controls">
+        <button type="button" id="configure-random-pool">Настройки генератора случайного пула</button>
+        <button type="button" id="generate-random-pool">Сгенерировать случайный пул</button>
+    </div>
+    <dialog id="random-pool-dialog">
+        <form method="dialog" id="random-pool-form">
+            <div class="random-pool-body">
+                <h3>Параметры генерации</h3>
+                <label class="random-pool-field" for="random-min-products">
+                    <span>Минимальное количество продуктов</span>
+                    <input type="number" id="random-min-products" min="1" step="1" value="3">
+                </label>
+                <label class="random-pool-field" for="random-step-min">
+                    <span>rand шаг min</span>
+                    <input type="number" id="random-step-min" min="1" step="1" value="5">
+                </label>
+                <label class="random-pool-field" for="random-step-max">
+                    <span>rand шаг max</span>
+                    <input type="number" id="random-step-max" min="1" step="1" value="20">
+                </label>
+                <label class="random-pool-field" for="random-max-portions-min">
+                    <span>rand Макс_порц min</span>
+                    <input type="number" id="random-max-portions-min" min="1" step="1" value="1">
+                </label>
+                <label class="random-pool-field" for="random-max-portions-max">
+                    <span>rand Макс_порц max</span>
+                    <input type="number" id="random-max-portions-max" min="1" step="1" value="5">
+                </label>
+            </div>
+            <div class="modal-actions">
+                <button type="button" id="random-pool-confirm">ОК</button>
+                <button type="button" id="random-pool-cancel">Отмена</button>
+            </div>
+        </form>
+    </dialog>
     <table id="pool">
         <thead>
             <tr>
@@ -313,6 +416,9 @@
         <div class="result-row"><strong>RMSE:</strong> <span id="rmse-result">-</span></div>
         <div class="result-row"><strong>Доля остатка (%):</strong> <span id="alpha-result">-</span></div>
         <div class="result-row"><strong>Прогон:</strong> <span id="run-result">-</span></div>
+    </div>
+    <div id="optimization-heatmap-wrapper" class="hidden">
+        <div id="optimization-heatmap"></div>
     </div>
     <div id="result-totals" class="hidden">
         <h3>Сравнение целевых и расчётных нутриентов</h3>
@@ -366,11 +472,19 @@
                 ['ККал', 'calories']
             ]);
             const API_ENDPOINT = 'api/optimize';
+            const DEFAULT_RANDOM_POOL_CONFIG = {
+                minProducts: 3,
+                stepMin: 5,
+                stepMax: 20,
+                maxPortionsMin: 1,
+                maxPortionsMax: 5
+            };
 
             const state = {
                 products: {},
                 optimizationList: new Set(),
-                currentTargets: null
+                currentTargets: null,
+                randomPoolConfig: { ...DEFAULT_RANDOM_POOL_CONFIG }
             };
 
             function formatNumber(value, fractionDigits = 2) {
@@ -394,6 +508,24 @@
                 return value;
             }
 
+            function getRandomInt(min, max) {
+                const minInt = Math.ceil(min);
+                const maxInt = Math.floor(max);
+                if (maxInt < minInt) {
+                    return minInt;
+                }
+                return Math.floor(Math.random() * (maxInt - minInt + 1)) + minInt;
+            }
+
+            function shuffleArray(source) {
+                const array = source.slice();
+                for (let i = array.length - 1; i > 0; i -= 1) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [array[i], array[j]] = [array[j], array[i]];
+                }
+                return array;
+            }
+
             const dbTable = document.getElementById('db');
             const dbBody = dbTable ? dbTable.querySelector('tbody') : null;
             const poolTable = document.getElementById('pool');
@@ -407,6 +539,8 @@
             const rmseResult = document.getElementById('rmse-result');
             const alphaResult = document.getElementById('alpha-result');
             const runResult = document.getElementById('run-result');
+            const optimizationHeatmapWrapper = document.getElementById('optimization-heatmap-wrapper');
+            const optimizationHeatmap = document.getElementById('optimization-heatmap');
             const resultTotalsSection = document.getElementById('result-totals');
             const resultTotalsBody = document.getElementById('result-totals-body');
             const bestResultSection = document.getElementById('best-result');
@@ -418,6 +552,85 @@
             const calculatorOkButton = document.getElementById('calculator-ok');
             const calculatorCancelButton = document.getElementById('calculator-cancel');
             const allowZeroWeightsToggle = document.getElementById('allow-zero-weights');
+            const randomPoolButton = document.getElementById('generate-random-pool');
+            const randomPoolSettingsButton = document.getElementById('configure-random-pool');
+            const randomPoolDialog = document.getElementById('random-pool-dialog');
+            const randomPoolConfirmButton = document.getElementById('random-pool-confirm');
+            const randomPoolCancelButton = document.getElementById('random-pool-cancel');
+            const randomMinProductsInput = document.getElementById('random-min-products');
+            const randomStepMinInput = document.getElementById('random-step-min');
+            const randomStepMaxInput = document.getElementById('random-step-max');
+            const randomMaxPortionsMinInput = document.getElementById('random-max-portions-min');
+            const randomMaxPortionsMaxInput = document.getElementById('random-max-portions-max');
+
+            function populateRandomPoolInputs(config) {
+                const source = { ...DEFAULT_RANDOM_POOL_CONFIG, ...(config || {}) };
+                if (randomMinProductsInput) {
+                    randomMinProductsInput.value = Number.isInteger(source.minProducts)
+                        ? source.minProducts.toString()
+                        : DEFAULT_RANDOM_POOL_CONFIG.minProducts.toString();
+                }
+                if (randomStepMinInput) {
+                    randomStepMinInput.value = Number.isInteger(source.stepMin)
+                        ? source.stepMin.toString()
+                        : DEFAULT_RANDOM_POOL_CONFIG.stepMin.toString();
+                }
+                if (randomStepMaxInput) {
+                    randomStepMaxInput.value = Number.isInteger(source.stepMax)
+                        ? source.stepMax.toString()
+                        : DEFAULT_RANDOM_POOL_CONFIG.stepMax.toString();
+                }
+                if (randomMaxPortionsMinInput) {
+                    randomMaxPortionsMinInput.value = Number.isInteger(source.maxPortionsMin)
+                        ? source.maxPortionsMin.toString()
+                        : DEFAULT_RANDOM_POOL_CONFIG.maxPortionsMin.toString();
+                }
+                if (randomMaxPortionsMaxInput) {
+                    randomMaxPortionsMaxInput.value = Number.isInteger(source.maxPortionsMax)
+                        ? source.maxPortionsMax.toString()
+                        : DEFAULT_RANDOM_POOL_CONFIG.maxPortionsMax.toString();
+                }
+            }
+
+            function validateRandomPoolConfig(config) {
+                if (!config || typeof config !== 'object') {
+                    return 'Настройки генератора случайного пула не заданы.';
+                }
+                if (!Number.isInteger(config.minProducts) || config.minProducts <= 0) {
+                    return 'Минимальное количество продуктов должно быть целым числом больше нуля.';
+                }
+                if (!Number.isInteger(config.stepMin) || !Number.isInteger(config.stepMax)
+                    || config.stepMin <= 0 || config.stepMax <= 0) {
+                    return 'Введите корректные значения для шага (целые числа больше нуля).';
+                }
+                if (config.stepMin > config.stepMax) {
+                    return 'Значение "rand шаг min" не может быть больше "rand шаг max".';
+                }
+                if (!Number.isInteger(config.maxPortionsMin) || !Number.isInteger(config.maxPortionsMax)
+                    || config.maxPortionsMin <= 0 || config.maxPortionsMax <= 0) {
+                    return 'Введите корректные значения для "Макс. порций" (целые числа больше нуля).';
+                }
+                if (config.maxPortionsMin > config.maxPortionsMax) {
+                    return '"rand Макс_порц min" не может быть больше "rand Макс_порц max".';
+                }
+                return null;
+            }
+
+            function readRandomPoolConfigFromInputs() {
+                const config = {
+                    minProducts: parseInt(randomMinProductsInput && randomMinProductsInput.value, 10),
+                    stepMin: parseInt(randomStepMinInput && randomStepMinInput.value, 10),
+                    stepMax: parseInt(randomStepMaxInput && randomStepMaxInput.value, 10),
+                    maxPortionsMin: parseInt(randomMaxPortionsMinInput && randomMaxPortionsMinInput.value, 10),
+                    maxPortionsMax: parseInt(randomMaxPortionsMaxInput && randomMaxPortionsMaxInput.value, 10)
+                };
+                const validationError = validateRandomPoolConfig(config);
+                if (validationError) {
+                    alert(validationError);
+                    return null;
+                }
+                return config;
+            }
 
             let calculatorSummaryBody = null;
             let updateCalculatorSummary = null;
@@ -451,6 +664,7 @@
                 if (bestResultBody) {
                     bestResultBody.innerHTML = '';
                 }
+                clearOptimizationHeatmap();
             }
 
             function renderTargetSummary(targets) {
@@ -490,6 +704,310 @@
                 }).join('');
                 resultTotalsBody.innerHTML = rows;
                 resultTotalsSection.classList.remove('hidden');
+            }
+
+            function clearOptimizationHeatmap() {
+                if (!optimizationHeatmapWrapper || !optimizationHeatmap) {
+                    return;
+                }
+                optimizationHeatmapWrapper.classList.add('hidden');
+                if (window.Plotly && typeof window.Plotly.purge === 'function') {
+                    window.Plotly.purge(optimizationHeatmap);
+                } else {
+                    optimizationHeatmap.innerHTML = '';
+                }
+            }
+
+            function renderOptimizationHeatmap(historyEntries) {
+                if (!optimizationHeatmapWrapper || !optimizationHeatmap) {
+                    return;
+                }
+                if (!Array.isArray(historyEntries) || !historyEntries.length || !window.Plotly) {
+                    clearOptimizationHeatmap();
+                    return;
+                }
+
+                const shareMap = new Map();
+                const runMap = new Map();
+                const shareValues = [];
+                const runValues = [];
+
+                historyEntries.forEach(entry => {
+                    const share = Number(entry && entry.residual_share);
+                    const run = Number(entry && entry.run);
+                    const rmseValue = Number(entry && entry.rmse);
+                    if (!Number.isFinite(share) || !Number.isFinite(run) || !Number.isFinite(rmseValue)) {
+                        return;
+                    }
+                    const shareKey = share.toFixed(6);
+                    if (!shareMap.has(shareKey)) {
+                        shareMap.set(shareKey, shareValues.length);
+                        shareValues.push(share);
+                    }
+                    const runKey = run.toString();
+                    if (!runMap.has(runKey)) {
+                        runMap.set(runKey, runValues.length);
+                        runValues.push(run);
+                    }
+                });
+
+                if (!shareValues.length || !runValues.length) {
+                    clearOptimizationHeatmap();
+                    return;
+                }
+
+                shareValues.sort((a, b) => a - b);
+                runValues.sort((a, b) => a - b);
+                shareMap.clear();
+                runMap.clear();
+                shareValues.forEach((value, index) => shareMap.set(value.toFixed(6), index));
+                runValues.forEach((value, index) => runMap.set(value.toString(), index));
+
+                const zMatrix = runValues.map(() => shareValues.map(() => Number.NaN));
+                let hasFinite = false;
+                let minValue = Number.POSITIVE_INFINITY;
+                let maxValue = Number.NEGATIVE_INFINITY;
+                let smallestPositive = Number.POSITIVE_INFINITY;
+
+                historyEntries.forEach(entry => {
+                    const share = Number(entry && entry.residual_share);
+                    const run = Number(entry && entry.run);
+                    const rmseValue = Number(entry && entry.rmse);
+                    if (!Number.isFinite(share) || !Number.isFinite(run) || !Number.isFinite(rmseValue)) {
+                        return;
+                    }
+                    const colIndex = shareMap.get(share.toFixed(6));
+                    const rowIndex = runMap.get(run.toString());
+                    if (colIndex === undefined || rowIndex === undefined) {
+                        return;
+                    }
+                    zMatrix[rowIndex][colIndex] = rmseValue;
+                    hasFinite = true;
+                    if (rmseValue < minValue) {
+                        minValue = rmseValue;
+                    }
+                    if (rmseValue > maxValue) {
+                        maxValue = rmseValue;
+                    }
+                    if (rmseValue > 0 && rmseValue < smallestPositive) {
+                        smallestPositive = rmseValue;
+                    }
+                });
+
+                if (!hasFinite || !Number.isFinite(minValue) || !Number.isFinite(maxValue)) {
+                    clearOptimizationHeatmap();
+                    return;
+                }
+
+                const sharePercents = shareValues.map(value => value * 100);
+                const hasStrictlyPositive = Number.isFinite(smallestPositive) && smallestPositive > 0;
+                const zeroReplacement = hasStrictlyPositive
+                    ? smallestPositive * 0.1
+                    : 1e-6;
+                let adjustedMinValue = Number.POSITIVE_INFINITY;
+                let adjustedMaxValue = Number.NEGATIVE_INFINITY;
+                const adjustedZMatrix = zMatrix.map(row => row.map(value => {
+                    if (!Number.isFinite(value)) {
+                        return Number.NaN;
+                    }
+                    const positiveValue = value > 0 ? value : zeroReplacement;
+                    if (positiveValue < adjustedMinValue) {
+                        adjustedMinValue = positiveValue;
+                    }
+                    if (positiveValue > adjustedMaxValue) {
+                        adjustedMaxValue = positiveValue;
+                    }
+                    return positiveValue;
+                }));
+
+                if (!Number.isFinite(adjustedMinValue) || !Number.isFinite(adjustedMaxValue)) {
+                    clearOptimizationHeatmap();
+                    return;
+                }
+
+                const hoverTextMatrix = zMatrix.map(row => row.map(value => {
+                    if (Number.isFinite(value)) {
+                        return value.toFixed(4);
+                    }
+                    return 'нет данных';
+                }));
+
+                const colorReplacement = hasStrictlyPositive ? smallestPositive : zeroReplacement;
+                let colorMinValue = Number.POSITIVE_INFINITY;
+                let colorMaxValue = Number.NEGATIVE_INFINITY;
+                const surfaceColorMatrix = zMatrix.map(row => row.map(value => {
+                    if (!Number.isFinite(value)) {
+                        return Number.NaN;
+                    }
+                    const positiveValue = value > 0 ? value : colorReplacement;
+                    if (positiveValue < colorMinValue) {
+                        colorMinValue = positiveValue;
+                    }
+                    if (positiveValue > colorMaxValue) {
+                        colorMaxValue = positiveValue;
+                    }
+                    return positiveValue;
+                }));
+
+                if (!Number.isFinite(colorMinValue) || !Number.isFinite(colorMaxValue)) {
+                    clearOptimizationHeatmap();
+                    return;
+                }
+
+                const thermalColorscale = [
+                    [0.0, '#ff0000'],
+                    [0.2, '#ff6600'],
+                    [0.4, '#ffcc00'],
+                    [0.6, '#ccff33'],
+                    [0.8, '#66ccff'],
+                    [1.0, '#0000ff']
+                ];
+
+                const colorRangeWidth = colorMaxValue - colorMinValue;
+                const colorbarConfig = { title: 'RMSE' };
+                let normalizedSurfaceColorMatrix;
+                let colorScaleMin = 0;
+                let colorScaleMax = 1;
+
+                if (colorRangeWidth > 0 && Number.isFinite(colorRangeWidth)) {
+                    normalizedSurfaceColorMatrix = surfaceColorMatrix.map(row => row.map(value => {
+                        if (!Number.isFinite(value)) {
+                            return Number.NaN;
+                        }
+                        return (value - colorMinValue) / colorRangeWidth;
+                    }));
+                    const tickCount = 5;
+                    const tickvals = [];
+                    const ticktext = [];
+                    for (let index = 0; index < tickCount; index += 1) {
+                        const fraction = tickCount === 1 ? 0 : index / (tickCount - 1);
+                        tickvals.push(fraction);
+                        const tickValue = colorMinValue + fraction * colorRangeWidth;
+                        ticktext.push(formatNumber(tickValue, 4));
+                    }
+                    colorbarConfig.tickvals = tickvals;
+                    colorbarConfig.ticktext = ticktext;
+                } else {
+                    normalizedSurfaceColorMatrix = surfaceColorMatrix.map(row => row.map(value => {
+                        if (!Number.isFinite(value)) {
+                            return Number.NaN;
+                        }
+                        return 0.5;
+                    }));
+                    colorbarConfig.tickvals = [0.5];
+                    colorbarConfig.ticktext = [formatNumber(colorMinValue, 4)];
+                }
+
+                const surfaceTrace = {
+                    type: 'surface',
+                    x: sharePercents,
+                    y: runValues,
+                    z: adjustedZMatrix,
+                    surfacecolor: normalizedSurfaceColorMatrix,
+                    customdata: hoverTextMatrix,
+                    colorscale: thermalColorscale,
+                    cauto: false,
+                    cmin: colorScaleMin,
+                    cmax: colorScaleMax,
+                    showscale: true,
+                    colorbar: colorbarConfig,
+                    hovertemplate: 'Доля остатка: %{x:.2f}%<br>Прогон: %{y}<br>RMSE: %{customdata}<extra></extra>',
+                    name: 'RMSE'
+                };
+
+                let minimalEntry = null;
+                historyEntries.forEach(entry => {
+                    const share = Number(entry && entry.residual_share);
+                    const run = Number(entry && entry.run);
+                    const rmseValue = Number(entry && entry.rmse);
+                    if (!Number.isFinite(share) || !Number.isFinite(run) || !Number.isFinite(rmseValue)) {
+                        return;
+                    }
+                    if (
+                        !minimalEntry
+                        || rmseValue < minimalEntry.rmse - 1e-9
+                        || (
+                            Math.abs(rmseValue - minimalEntry.rmse) <= 1e-9
+                            && (share < minimalEntry.share || (share === minimalEntry.share && run < minimalEntry.run))
+                        )
+                    ) {
+                        minimalEntry = { share, run, rmse: rmseValue };
+                    }
+                });
+
+                const traces = [surfaceTrace];
+                if (minimalEntry) {
+                    const minimalEntryZ = minimalEntry.rmse > 0 ? minimalEntry.rmse : zeroReplacement;
+                    traces.push({
+                        type: 'scatter3d',
+                        mode: 'markers+text',
+                        x: [minimalEntry.share * 100],
+                        y: [minimalEntry.run],
+                        z: [minimalEntryZ],
+                        marker: {
+                            size: 6,
+                            color: '#ff4500',
+                            line: { width: 1, color: '#ffffff' }
+                        },
+                        text: [`${minimalEntry.rmse.toFixed(2)}`],
+                        textposition: 'top center',
+                        name: 'Минимальный RMSE',
+                        customdata: [minimalEntry.rmse],
+                        hovertemplate: 'Минимальный RMSE<br>Доля остатка: %{x:.2f}%<br>Прогон: %{y}<br>RMSE: %{customdata:.4f}<extra></extra>'
+                    });
+                }
+
+                const rmseAxisMin = minValue > 0 ? minValue : (hasStrictlyPositive ? smallestPositive : zeroReplacement);
+                let rmseAxisMax = maxValue > 0 ? maxValue : rmseAxisMin;
+                if (!Number.isFinite(rmseAxisMax) || rmseAxisMax <= 0) {
+                    rmseAxisMax = rmseAxisMin > 0 ? rmseAxisMin : 1;
+                }
+                if (rmseAxisMax <= rmseAxisMin) {
+                    rmseAxisMax = rmseAxisMin * 1.0001;
+                }
+
+                let zAxisRange = null;
+                if (rmseAxisMin > 0 && rmseAxisMax > 0 && Number.isFinite(rmseAxisMin) && Number.isFinite(rmseAxisMax)) {
+                    const lower = Math.log10(rmseAxisMin);
+                    const upper = Math.log10(rmseAxisMax);
+                    if (Number.isFinite(lower) && Number.isFinite(upper)) {
+                        zAxisRange = [lower, upper];
+                    }
+                }
+
+                const zAxisConfig = { title: 'RMSE', type: 'log' };
+                if (zAxisRange) {
+                    zAxisConfig.autorange = false;
+                    zAxisConfig.range = zAxisRange;
+                } else {
+                    zAxisConfig.autorange = true;
+                }
+
+                const layout = {
+                    title: 'Тепловая карта RMSE',
+                    autosize: true,
+                    margin: { l: 0, r: 0, b: 0, t: 40 },
+                    scene: {
+                        xaxis: { title: 'Доля остатка (%)' },
+                        yaxis: { title: 'Прогон' },
+                        zaxis: zAxisConfig,
+                        aspectmode: 'cube',
+                        camera: {
+                            eye: { x: 1.35, y: 1.35, z: 0.9 }
+                        }
+                    }
+                };
+
+                const config = {
+                    responsive: true,
+                    displaylogo: false,
+                    modeBarButtonsToRemove: ['autoScale2d', 'resetScale2d']
+                };
+
+                const plotly = window.Plotly;
+                const method = typeof plotly.react === 'function' ? 'react' : 'newPlot';
+                plotly[method](optimizationHeatmap, traces, layout, config);
+                optimizationHeatmapWrapper.classList.remove('hidden');
             }
 
             function extractTargetsFromSummary(summaryElement) {
@@ -575,6 +1093,15 @@
                     });
                 });
                 return selected;
+            }
+
+            function clearPool() {
+                if (!poolBody) {
+                    return;
+                }
+                poolBody.innerHTML = '';
+                state.optimizationList.clear();
+                resetOptimizationResults();
             }
 
             function addToPool(name) {
@@ -732,6 +1259,8 @@
                 const targetsForTotals = (result && typeof result.targets === 'object') ? result.targets : state.currentTargets;
                 const totalsForResult = result && typeof result.totals === 'object' ? result.totals : null;
                 renderResultTotals(targetsForTotals, totalsForResult);
+                const historyEntries = Array.isArray(result.history) ? result.history : [];
+                renderOptimizationHeatmap(historyEntries);
                 if (bestResultBody && bestResultSection) {
                     const weights = Array.isArray(result.weights)
                         ? result.weights.filter(item => Number.isFinite(item.weight) && item.weight >= 0)
@@ -974,6 +1503,93 @@
                 }
                 updateNutrientVisibility();
                 updateDbVisibility();
+
+                populateRandomPoolInputs(state.randomPoolConfig);
+
+                if (randomPoolSettingsButton && randomPoolDialog) {
+                    randomPoolSettingsButton.addEventListener('click', () => {
+                        populateRandomPoolInputs(state.randomPoolConfig);
+                        randomPoolDialog.showModal();
+                    });
+                }
+
+                if (randomPoolCancelButton && randomPoolDialog) {
+                    randomPoolCancelButton.addEventListener('click', () => {
+                        randomPoolDialog.close();
+                    });
+                }
+
+                if (randomPoolDialog) {
+                    randomPoolDialog.addEventListener('cancel', event => {
+                        event.preventDefault();
+                        randomPoolDialog.close();
+                    });
+                }
+
+                if (randomPoolConfirmButton) {
+                    randomPoolConfirmButton.addEventListener('click', () => {
+                        const config = readRandomPoolConfigFromInputs();
+                        if (!config) {
+                            return;
+                        }
+                        state.randomPoolConfig = { ...config };
+                        if (randomPoolDialog) {
+                            randomPoolDialog.close();
+                        }
+                    });
+                }
+
+                if (randomPoolButton) {
+                    randomPoolButton.addEventListener('click', () => {
+                        const allProducts = Object.keys(state.products);
+                        if (!allProducts.length) {
+                            alert('База продуктов ещё не загружена.');
+                            return;
+                        }
+
+                        const config = state.randomPoolConfig;
+                        const validationError = validateRandomPoolConfig(config);
+                        if (validationError) {
+                            alert(`${validationError} Откройте настройки генератора случайного пула и сохраните значения.`);
+                            return;
+                        }
+
+                        if (config.minProducts > allProducts.length) {
+                            alert('Минимальное количество продуктов не может превышать размер базы.');
+                            return;
+                        }
+
+                        const productCount = getRandomInt(config.minProducts, allProducts.length);
+                        const selectedNames = shuffleArray(allProducts).slice(0, productCount);
+                        clearPool();
+                        selectedNames.forEach(name => {
+                            addToPool(name);
+                            const row = poolBody ? poolBody.querySelector(`tr[data-name="${name}"]`) : null;
+                            if (!row) {
+                                return;
+                            }
+                            const randomStep = getRandomInt(config.stepMin, config.stepMax);
+                            const randomMaxPortions = getRandomInt(config.maxPortionsMin, config.maxPortionsMax);
+
+                            const stepInput = row.querySelector('.step');
+                            const maxPortionsInput = row.querySelector('.max-portions');
+                            const optimizeCheckbox = row.querySelector('.optimize');
+
+                            if (stepInput) {
+                                stepInput.value = randomStep.toString();
+                                stepInput.dispatchEvent(new Event('input', { bubbles: true }));
+                            }
+                            if (maxPortionsInput) {
+                                maxPortionsInput.value = randomMaxPortions.toString();
+                                maxPortionsInput.dispatchEvent(new Event('input', { bubbles: true }));
+                            }
+                            if (optimizeCheckbox) {
+                                optimizeCheckbox.checked = true;
+                                optimizeCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
+                            }
+                        });
+                    });
+                }
 
                 if (runOptimizationButton) {
                     runOptimizationButton.addEventListener('click', async () => {
