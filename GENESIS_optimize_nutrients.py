@@ -1,8 +1,5 @@
 import csv
 import math
-import os
-import random
-import time
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence
 
@@ -35,8 +32,8 @@ RMSE_WEIGHTS: Dict[str, float] = {
     'insoluble': 1.0,
     'calories': 3.0,
 }
-MAX_OPTIMISATION_ROUNDS = 10
 NEGATIVE_TOLERANCE = 1e-9
+RESIDUAL_EPS = 1e-6
 
 
 @dataclass
@@ -107,40 +104,18 @@ def _parse_bool(value: object, default: bool = False) -> bool:
     return default
 
 
-def _residual_share_sequence(start_fraction: float) -> List[float]:
-    """Построить последовательность долей остатка с шагом 1% до 100%."""
-
+def _clamp_fraction(value: float) -> float:
     try:
-        fraction = float(start_fraction or 0.0)
+        fraction = float(value or 0.0)
     except (TypeError, ValueError):
-        fraction = 0.0
-
+        return 0.0
     if not math.isfinite(fraction):
-        fraction = 0.0
-
-    fraction = max(0.0, min(1.0, fraction))
-    start_percent = fraction * 100.0
-    shares: List[float] = []
-    seen: set[float] = set()
-
-    def add_share(value: float) -> None:
-        key = round(value, 6)
-        if key not in seen:
-            seen.add(key)
-            shares.append(value)
-
-    add_share(fraction)
-    next_percent = math.ceil(start_percent)
-    for percent in range(int(next_percent), 101):
-        share_value = percent / 100.0
-        if share_value < fraction:
-            continue
-        add_share(share_value)
-
-    if not shares:
-        shares.append(1.0)
-
-    return shares
+        return 0.0
+    if fraction < 0.0:
+        return 0.0
+    if fraction > 1.0:
+        return 1.0
+    return fraction
 
 
 def load_product_database(csv_path: str = DEFAULT_CSV_PATH) -> Dict[str, Dict[str, float]]:
@@ -196,6 +171,198 @@ def _quantize_to_step(value: float, step: float, maximum: float) -> float:
     if rounded > maximum:
         rounded = math.floor(maximum / step) * step
     return max(0.0, min(rounded, maximum))
+
+
+def _compute_residuals(
+    targets: Mapping[str, float], totals: Mapping[str, float]
+) -> Dict[str, float]:
+    residuals: Dict[str, float] = {}
+    for key in NUTRIENT_VECTOR_KEYS:
+        residuals[key] = float(targets.get(key, 0.0) - totals.get(key, 0.0))
+    return residuals
+
+
+def _positive_residual_indices(residuals: Mapping[str, float]) -> List[int]:
+    indices: List[int] = []
+    for pos, key in enumerate(NUTRIENT_VECTOR_KEYS):
+        if residuals.get(key, 0.0) > RESIDUAL_EPS:
+            indices.append(pos)
+    return indices
+
+
+def _estimate_alpha(
+    nutrient_indices: Sequence[int],
+    active_indices: Sequence[int],
+    residuals: Mapping[str, float],
+    per_gram_map: Mapping[int, np.ndarray],
+    capacities: Mapping[int, float],
+    additions: Mapping[int, float],
+    steps: Mapping[int, float],
+    requested_fraction: float,
+) -> float:
+    alpha_candidates: List[float] = []
+    for nutrient_index in nutrient_indices:
+        key = NUTRIENT_VECTOR_KEYS[nutrient_index]
+        residual_value = residuals.get(key, 0.0)
+        if residual_value <= RESIDUAL_EPS:
+            continue
+        ratios: List[float] = []
+        for idx in active_indices:
+            available = max(0.0, capacities.get(idx, 0.0) - additions.get(idx, 0.0))
+            if available <= RESIDUAL_EPS:
+                continue
+            per_nutrient = float(per_gram_map[idx][nutrient_index])
+            if per_nutrient <= 0.0:
+                continue
+            step = steps.get(idx, 0.0)
+            if step > 0.0:
+                increment = min(available, step)
+            else:
+                increment = available
+            if increment <= RESIDUAL_EPS:
+                continue
+            portion_value = per_nutrient * increment
+            if portion_value <= 0.0:
+                continue
+            ratios.append(portion_value / residual_value)
+        if ratios:
+            alpha_candidates.append(min(ratios))
+
+    if not alpha_candidates:
+        return 0.0
+
+    computed = max(alpha_candidates)
+    requested = _clamp_fraction(requested_fraction)
+    if requested > 0.0:
+        computed = max(computed, requested)
+    return max(0.0, min(1.0, computed))
+
+
+def _build_weighted_system(
+    nutrient_indices: Sequence[int],
+    active_indices: Sequence[int],
+    per_gram_map: Mapping[int, np.ndarray],
+    residuals: Mapping[str, float],
+    alpha: float,
+) -> Optional[tuple[np.ndarray, np.ndarray]]:
+    if not nutrient_indices or not active_indices:
+        return None
+
+    matrix = np.zeros((len(nutrient_indices), len(active_indices)), dtype=float)
+    for col, idx in enumerate(active_indices):
+        matrix[:, col] = np.array(per_gram_map[idx].take(nutrient_indices), dtype=float)
+
+    if not np.any(matrix):
+        return None
+
+    weights = np.array(
+        [math.sqrt(RMSE_WEIGHTS.get(NUTRIENT_VECTOR_KEYS[pos], 1.0)) for pos in nutrient_indices],
+        dtype=float,
+    )
+    targets = np.array(
+        [max(0.0, residuals.get(NUTRIENT_VECTOR_KEYS[pos], 0.0)) * alpha for pos in nutrient_indices],
+        dtype=float,
+    )
+
+    weighted_matrix = np.nan_to_num(matrix * weights[:, None], nan=0.0, posinf=0.0, neginf=0.0)
+    weighted_target = np.nan_to_num(targets * weights, nan=0.0, posinf=0.0, neginf=0.0)
+    return weighted_matrix, weighted_target
+
+
+def _best_math_optimisation(
+    variable_indices: Sequence[int],
+    per_gram_map: Mapping[int, np.ndarray],
+    capacities: Mapping[int, float],
+    steps: Mapping[int, float],
+    base_totals: Mapping[str, float],
+    targets: Mapping[str, float],
+    requested_fraction: float,
+    max_iterations: int,
+) -> tuple[Dict[int, float], Dict[str, float], float, int]:
+    additions: Dict[int, float] = {idx: 0.0 for idx in variable_indices}
+    totals = {key: float(base_totals.get(key, 0.0)) for key in NUTRIENT_VECTOR_KEYS}
+    residuals = _compute_residuals(targets, totals)
+    last_alpha = 0.0
+    iterations = 0
+    max_iterations = max(1, int(max_iterations))
+
+    while iterations < max_iterations:
+        nutrient_indices = _positive_residual_indices(residuals)
+        if not nutrient_indices:
+            break
+
+        active_indices = [
+            idx
+            for idx in variable_indices
+            if capacities.get(idx, 0.0) - additions.get(idx, 0.0) > RESIDUAL_EPS
+        ]
+        if not active_indices:
+            break
+
+        alpha = _estimate_alpha(
+            nutrient_indices,
+            active_indices,
+            residuals,
+            per_gram_map,
+            capacities,
+            additions,
+            steps,
+            requested_fraction,
+        )
+        if alpha <= 0.0:
+            break
+
+        system = _build_weighted_system(
+            nutrient_indices,
+            active_indices,
+            per_gram_map,
+            residuals,
+            alpha,
+        )
+        if system is None:
+            break
+        weighted_matrix, weighted_target = system
+        gram = np.nan_to_num(weighted_matrix.T @ weighted_matrix, nan=0.0, posinf=0.0, neginf=0.0)
+        b_vec = np.nan_to_num(weighted_matrix.T @ weighted_target, nan=0.0, posinf=0.0, neginf=0.0)
+
+        solution = _solve_non_negative_system(gram, b_vec)
+        if solution.size == 0:
+            break
+
+        any_added = False
+        for sol_pos, idx in enumerate(active_indices):
+            grams = float(solution[sol_pos])
+            if not math.isfinite(grams) or grams <= 0.0:
+                continue
+            available = max(0.0, capacities.get(idx, 0.0) - additions.get(idx, 0.0))
+            if available <= RESIDUAL_EPS:
+                continue
+            grams = min(grams, available)
+            step = steps.get(idx, 0.0)
+            if step > 0.0:
+                grams = _quantize_to_step(grams, step, available)
+            else:
+                grams = max(0.0, min(grams, available))
+            if grams <= RESIDUAL_EPS:
+                continue
+
+            additions[idx] += grams
+            any_added = True
+            per_vector = per_gram_map[idx]
+            for pos, key in enumerate(NUTRIENT_VECTOR_KEYS):
+                totals[key] = totals.get(key, 0.0) + float(per_vector[pos] * grams)
+                residuals[key] = float(targets.get(key, 0.0) - totals[key])
+
+        last_alpha = alpha
+        iterations += 1
+
+        if not any_added:
+            break
+
+    if last_alpha <= 0.0:
+        last_alpha = _clamp_fraction(requested_fraction)
+
+    return additions, totals, last_alpha, iterations
 
 
 def _normalise_targets(raw: Mapping[str, float]) -> Dict[str, float]:
@@ -345,177 +512,20 @@ def _solve_non_negative_system(matrix: np.ndarray, vector: np.ndarray) -> np.nda
     return solution
 
 
-def _run_iterative_optimisation(
-    ordered_indices: Sequence[int],
-    per_gram_map: Mapping[int, np.ndarray],
-    residual: Mapping[str, float],
-    capacities: Mapping[int, float],
-    steps: Mapping[int, float],
-    residual_fraction: float,
-    rng: random.Random,
-    noise_strength: float = 0.0,
-) -> Dict[int, float]:
-    if not ordered_indices:
-        return {}
-
-    base_residual_vec = {
-        key: max(0.0, float(residual.get(key, 0.0))) for key in NUTRIENT_VECTOR_KEYS
-    }
-    noise_scale = max(0.0, float(noise_strength or 0.0))
-    if noise_scale > 0.0:
-        noise_vector = [
-            max(0.0, 1.0 + rng.uniform(-noise_scale, noise_scale))
-            for _ in NUTRIENT_VECTOR_KEYS
-        ]
-    else:
-        noise_vector = [1.0] * len(NUTRIENT_VECTOR_KEYS)
-
-    residual_vec = {
-        key: base_residual_vec[key] * noise_vector[pos]
-        for pos, key in enumerate(NUTRIENT_VECTOR_KEYS)
-    }
-    additions = {idx: 0.0 for idx in ordered_indices}
-    active = list(ordered_indices)
-    iteration = 0
-    base_weight_vector = np.array(
-        [RMSE_WEIGHTS.get(key, 1.0) for key in NUTRIENT_VECTOR_KEYS], dtype=float
-    )
-    if noise_scale > 0.0:
-        weight_noise = np.array(
-            [max(0.05, 1.0 + rng.uniform(-noise_scale, noise_scale)) for _ in NUTRIENT_VECTOR_KEYS],
-            dtype=float,
-        )
-        weight_vector = base_weight_vector * weight_noise
-    else:
-        weight_vector = base_weight_vector
-
-    while active and iteration < MAX_OPTIMISATION_ROUNDS:
-        filtered: List[int] = []
-        for idx in active:
-            step = steps.get(idx, 0.0)
-            remaining = max(0.0, capacities.get(idx, 0.0) - additions[idx])
-            if step > 0 and remaining >= step / 2:
-                filtered.append(idx)
-        active = filtered
-        if not active:
-            break
-
-        per_gram_matrix = np.stack([per_gram_map[idx] for idx in active])
-        target_scaled = np.array(
-            [residual_vec[key] * residual_fraction for key in NUTRIENT_VECTOR_KEYS],
-            dtype=float,
-        )
-        weighted_matrix = np.nan_to_num(per_gram_matrix * weight_vector, nan=0.0, posinf=0.0, neginf=0.0)
-        target_scaled = np.nan_to_num(target_scaled, nan=0.0, posinf=0.0, neginf=0.0)
-        b_vec = np.sum(weighted_matrix * target_scaled, axis=1)
-        gram_matrix = np.nan_to_num(weighted_matrix @ per_gram_matrix.T, nan=0.0, posinf=0.0, neginf=0.0)
-
-        solution = _solve_non_negative_system(gram_matrix, b_vec)
-        if solution.size == 0:
-            break
-
-        any_positive = False
-        for position, idx in enumerate(active):
-            grams = float(solution[position])
-            if not math.isfinite(grams) or grams <= 0:
-                continue
-            remaining_capacity = max(0.0, capacities.get(idx, 0.0) - additions[idx])
-            if remaining_capacity <= 0:
-                continue
-            if grams > remaining_capacity:
-                grams = remaining_capacity
-
-            step = steps.get(idx, 0.0)
-            if step > 0:
-                grams = _quantize_to_step(grams, step, remaining_capacity)
-            else:
-                grams = max(0.0, min(grams, remaining_capacity))
-
-            if grams <= 0:
-                continue
-
-            additions[idx] += grams
-            any_positive = True
-
-            per_gram_vector = per_gram_map[idx]
-            for pos, key in enumerate(NUTRIENT_VECTOR_KEYS):
-                residual_vec[key] -= float(per_gram_vector[pos] * grams)
-
-        if not any_positive:
-            break
-
-        iteration += 1
-
-    return {idx: additions[idx] for idx in ordered_indices if additions[idx] > 0}
-
-
-def _randomised_candidate(
-    variable_indices: Sequence[int],
-    base_totals: Mapping[str, float],
-    per_gram_map: Mapping[int, np.ndarray],
-    capacities: Mapping[int, float],
-    steps: Mapping[int, float],
-    share: float,
-    rng: random.Random,
-) -> tuple[Dict[int, float], Dict[str, float]]:
-    additions: Dict[int, float] = {}
-    totals = dict(base_totals)
-    share = max(0.0, min(1.0, share))
-    for idx in variable_indices:
-        capacity = max(0.0, capacities.get(idx, 0.0))
-        if capacity <= 0:
-            continue
-        target_capacity = max(0.0, min(capacity, capacity * share))
-        if target_capacity <= 0:
-            continue
-        step = steps.get(idx, 0.0)
-        if step > 0:
-            max_steps = int(math.floor(target_capacity / step + 1e-9))
-            if max_steps <= 0:
-                continue
-            chosen_steps = rng.randint(0, max_steps)
-            weight = chosen_steps * step
-        else:
-            weight = rng.uniform(0.0, target_capacity)
-        weight = max(0.0, min(weight, capacity))
-        if weight <= 0:
-            continue
-        additions[idx] = weight
-        _accumulate_totals(totals, per_gram_map[idx], weight)
-    return additions, totals
-
-
-def _derive_seed() -> int:
-    try:
-        return int.from_bytes(os.urandom(16), 'big')
-    except NotImplementedError:
-        return int(time.time_ns())
-
-
-def _noise_for_iteration(iteration: int) -> float:
-    if iteration <= 1:
-        return 0.0
-    # увеличиваем амплитуду шума постепенно, но ограничиваем сверху
-    growth = 0.015 * math.sqrt(float(iteration))
-    return min(0.3, 0.05 + growth)
-
-
 def optimise_diet(
     products: Sequence[OptimizationProduct],
     targets: Mapping[str, float],
     run_count: int,
     residual_share: float,
     allow_zero_weights: bool = True,
-    rng: Optional[random.Random] = None,
+    rng: Optional[object] = None,
 ) -> Dict[str, object]:
+    del rng  # генератор случайных чисел не используется в детерминированной версии
+
     if not products:
         raise ValueError('Список продуктов для оптимизации пуст.')
     if run_count <= 0:
         raise ValueError('Количество прогонов должно быть положительным.')
-
-    if rng is None:
-        seed = _derive_seed()
-        rng = random.Random(seed)
 
     targets_map = _normalise_targets(targets)
     per_gram_map = _build_per_gram_map(products)
@@ -541,89 +551,41 @@ def optimise_diet(
         capacities[idx] = remaining_capacity
         if base_weight > 0:
             _accumulate_totals(base_totals, per_gram_map[idx], base_weight)
-        if not product.fix_weight and remaining_capacity > 0:
+        if not product.fix_weight and remaining_capacity > RESIDUAL_EPS:
             variable_indices.append(idx)
 
-    residual_vector = {
-        key: targets_map.get(key, 0.0) - base_totals.get(key, 0.0)
-        for key in NUTRIENT_VECTOR_KEYS
-    }
-    residual_sequence = _residual_share_sequence(residual_share)
-
-    best_totals = dict(base_totals)
-    best_score = _weighted_rmse(best_totals, targets_map)
-    best_run = 0
-    best_share = residual_sequence[0] if residual_sequence else 1.0
-    best_additions: Dict[int, float] = {}
-
-    iteration_counter = 0
+    requested_fraction = _clamp_fraction(residual_share)
 
     if variable_indices:
-        for share in residual_sequence:
-            share = max(0.0, min(1.0, share))
-            for run_index in range(1, run_count + 1):
-                iteration_counter += 1
-                shuffled = list(variable_indices)
-                rng.shuffle(shuffled)
-                if iteration_counter == 1:
-                    noise_strength = 0.0
-                else:
-                    noise_strength = _noise_for_iteration(iteration_counter)
-                additions = _run_iterative_optimisation(
-                    shuffled,
-                    per_gram_map,
-                    residual_vector,
-                    capacities,
-                    steps,
-                    share,
-                    rng,
-                    noise_strength=noise_strength,
-                )
-                totals = dict(base_totals)
-                for idx, grams in additions.items():
-                    _accumulate_totals(totals, per_gram_map[idx], grams)
-                score = _weighted_rmse(totals, targets_map)
-
-                if noise_strength > 0.0 and variable_indices:
-                    trial_count = max(
-                        1,
-                        min(len(variable_indices), int(1 + noise_strength * 10)),
-                    )
-                    for _ in range(trial_count):
-                        random_additions, random_totals = _randomised_candidate(
-                            variable_indices,
-                            base_totals,
-                            per_gram_map,
-                            capacities,
-                            steps,
-                            share,
-                            rng,
-                        )
-                        random_score = _weighted_rmse(random_totals, targets_map)
-                        if random_score + 1e-9 < score:
-                            additions = random_additions
-                            totals = random_totals
-                            score = random_score
-
-                if score + 1e-9 < best_score:
-                    best_score = score
-                    best_run = iteration_counter
-                    best_share = share
-                    best_totals = totals
-                    best_additions = additions
+        additions, totals, alpha, iterations = _best_math_optimisation(
+            variable_indices,
+            per_gram_map,
+            capacities,
+            steps,
+            base_totals,
+            targets_map,
+            requested_fraction,
+            max_iterations=run_count,
+        )
+    else:
+        additions = {}
+        totals = dict(base_totals)
+        alpha = requested_fraction
+        iterations = 0
 
     weight_summary = []
     for idx, product in enumerate(products):
-        total_weight = base_weights.get(idx, 0.0) + best_additions.get(idx, 0.0)
+        total_weight = base_weights.get(idx, 0.0) + additions.get(idx, 0.0)
         total_weight = min(total_weight, product.max_weight)
         weight_summary.append({'name': product.name, 'weight': round(total_weight, 2)})
 
-    result_totals = {key: round(best_totals.get(key, 0.0), 4) for key in NUTRIENT_VECTOR_KEYS}
+    result_totals = {key: round(totals.get(key, 0.0), 4) for key in NUTRIENT_VECTOR_KEYS}
+    score = _weighted_rmse(totals, targets_map)
 
     return {
-        'rmse': round(float(best_score), 6),
-        'run': best_run,
-        'residual_share': round(float(best_share), 6),
+        'rmse': round(float(score), 6),
+        'run': int(iterations),
+        'residual_share': round(float(alpha), 6),
         'weights': weight_summary,
         'totals': result_totals,
     }
