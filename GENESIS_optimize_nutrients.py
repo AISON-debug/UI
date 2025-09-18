@@ -565,7 +565,7 @@ def optimise_diet(
                 iteration_counter += 1
                 shuffled = list(variable_indices)
                 rng.shuffle(shuffled)
-                if run_index == 1:
+                if iteration_counter == 1:
                     noise_strength = 0.0
                 else:
                     noise_strength = _noise_for_iteration(iteration_counter)
@@ -607,7 +607,7 @@ def optimise_diet(
 
                 if score + 1e-9 < best_score:
                     best_score = score
-                    best_run = run_index
+                    best_run = iteration_counter
                     best_share = share
                     best_totals = totals
                     best_additions = additions
