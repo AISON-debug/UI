@@ -15,7 +15,27 @@
         .max-weight { padding: 2px 4px; }
         .optimized-row { background-color: #ccffcc; }
         .fix-weight-active { background-color: #ffb6c1; }
+        #open-db {
+            margin-top: 12px;
+            margin-right: 8px;
+        }
         #open-calculator { margin-top: 12px; }
+        #open-db,
+        #open-calculator {
+            padding: 8px 14px;
+            border-radius: 8px;
+            border: 1px solid #d1d5db;
+            background: #0ea5e9;
+            color: #fff;
+            cursor: pointer;
+        }
+        #open-calculator {
+            background: #6366f1;
+        }
+        #open-db:hover,
+        #open-calculator:hover {
+            filter: brightness(0.95);
+        }
         #optimization-controls {
             margin-top: 12px;
             display: flex;
@@ -63,6 +83,9 @@
         }
         dialog::backdrop {
             background: rgba(0, 0, 0, 0.35);
+        }
+        #db-dialog {
+            max-width: min(1000px, 96vw);
         }
         #calculatorContainer {
             font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
@@ -112,6 +135,73 @@
         #calculatorContainer td { padding: 10px 12px; border-bottom: 1px solid #e5e7eb; font-size: 14px; text-align: left; }
         #calculatorContainer tr:last-child td { border-bottom: none; }
         #calculatorContainer .buttons { display: none; }
+        #dbContainer {
+            font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+        }
+        #dbContainer .db-card {
+            width: min(960px, 96vw);
+            background: #f3f4f6;
+            border: 1px solid #e5e7eb;
+            border-radius: 16px;
+            box-shadow: 0 6px 28px rgba(0,0,0,.08);
+            padding: 18px 16px 18px;
+        }
+        #dbContainer h2 {
+            margin: 0 0 12px 0;
+        }
+        #dbContainer .db-controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 14px;
+        }
+        #dbContainer .db-table-wrapper {
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            max-height: min(65vh, 560px);
+            overflow: auto;
+        }
+        #dbContainer .db-table-wrapper table {
+            width: 100%;
+        }
+        #db-dialog .modal-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+            padding: 12px 16px 16px;
+            background: #f9fafb;
+            border-top: 1px solid #e5e7eb;
+            border-bottom-left-radius: 16px;
+            border-bottom-right-radius: 16px;
+        }
+        #db-dialog .modal-actions button {
+            padding: 8px 16px;
+            border-radius: 10px;
+            border: 1px solid #d1d5db;
+            background: #0ea5e9;
+            color: #fff;
+            cursor: pointer;
+        }
+        #db-dialog .modal-actions button:hover {
+            filter: brightness(0.95);
+        }
+        .add-product {
+            min-width: 32px;
+            padding: 4px 8px;
+            border-radius: 6px;
+            border: 1px solid #d1d5db;
+            background: #f3f4f6;
+            cursor: pointer;
+        }
+        .add-product.in-pool {
+            background: #22c55e;
+            border-color: #16a34a;
+            color: #fff;
+        }
+        .db-row-in-pool {
+            background-color: #e6ffe6;
+        }
         #calculator-dialog .modal-actions {
             display: flex;
             justify-content: flex-end;
@@ -137,9 +227,43 @@
     </style>
 </head>
 <body>
-    <label><input type="checkbox" id="toggle-expanded" checked> Развернутая таблица нутриентов</label>
-    <label><input type="checkbox" id="toggle-hide-db"> Скрыть базу данных</label>
+    <button type="button" id="open-db">База данных продуктов</button>
     <button type="button" id="open-calculator">Калькулятор ОСО</button>
+    <dialog id="db-dialog">
+        <div id="dbContainer">
+            <div class="db-card">
+                <h2>База данных продуктов</h2>
+                <div class="db-controls">
+                    <label><input type="checkbox" id="toggle-expanded" checked> Развернутая таблица нутриентов</label>
+                    <label><input type="checkbox" id="toggle-hide-db"> Скрыть базу данных</label>
+                </div>
+                <div id="db-table-wrapper" class="db-table-wrapper">
+                    <table id="db">
+                        <thead>
+                            <tr>
+                                <th>Добавить</th>
+                                <th>Продукт</th>
+                                <th>Белки</th>
+                                <th class="collapsed-only">Жиры</th>
+                                <th class="collapsed-only">Углеводы</th>
+                                <th class="detailed-col">Насыщенные</th>
+                                <th class="detailed-col">НЕнасыщенные</th>
+                                <th class="detailed-col">Простые</th>
+                                <th class="detailed-col">Сложные</th>
+                                <th class="detailed-col">Растворимая</th>
+                                <th class="detailed-col">Нерастворимая</th>
+                                <th>ККал</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div class="modal-actions">
+            <button type="button" id="close-db">Закрыть</button>
+        </div>
+    </dialog>
     <section id="target-summary" class="hidden">
         <h3>Целевые показатели (из калькулятора)</h3>
         <table>
@@ -248,25 +372,6 @@
             <button type="button" id="calculator-cancel">Отмена</button>
         </div>
     </dialog>
-    <table id="db">
-        <thead>
-            <tr>
-                <th>Добавить</th>
-                <th>Продукт</th>
-                <th>Белки</th>
-                <th class="collapsed-only">Жиры</th>
-                <th class="collapsed-only">Углеводы</th>
-                <th class="detailed-col">Насыщенные</th>
-                <th class="detailed-col">НЕнасыщенные</th>
-                <th class="detailed-col">Простые</th>
-                <th class="detailed-col">Сложные</th>
-                <th class="detailed-col">Растворимая</th>
-                <th class="detailed-col">Нерастворимая</th>
-                <th>ККал</th>
-            </tr>
-        </thead>
-        <tbody></tbody>
-    </table>
     <h2>Мой пул</h2>
     <table id="pool">
         <thead>
@@ -370,7 +475,8 @@
             const state = {
                 products: {},
                 optimizationList: new Set(),
-                currentTargets: null
+                currentTargets: null,
+                poolProducts: new Set()
             };
 
             function formatNumber(value, fractionDigits = 2) {
@@ -396,10 +502,14 @@
 
             const dbTable = document.getElementById('db');
             const dbBody = dbTable ? dbTable.querySelector('tbody') : null;
+            const dbTableWrapper = document.getElementById('db-table-wrapper');
             const poolTable = document.getElementById('pool');
             const poolBody = poolTable ? poolTable.querySelector('tbody') : null;
             const expandedToggle = document.getElementById('toggle-expanded');
             const hideDbToggle = document.getElementById('toggle-hide-db');
+            const openDbButton = document.getElementById('open-db');
+            const dbDialog = document.getElementById('db-dialog');
+            const closeDbButton = document.getElementById('close-db');
             const residualInput = document.getElementById('residual-share');
             const runCountInput = document.getElementById('run-count');
             const runOptimizationButton = document.getElementById('run-optimization');
@@ -418,6 +528,7 @@
             const calculatorOkButton = document.getElementById('calculator-ok');
             const calculatorCancelButton = document.getElementById('calculator-cancel');
             const allowZeroWeightsToggle = document.getElementById('allow-zero-weights');
+            const dbRowMap = new Map();
 
             let calculatorSummaryBody = null;
             let updateCalculatorSummary = null;
@@ -538,10 +649,39 @@
             }
 
             function updateDbVisibility() {
-                if (!dbTable) {
+                const shouldHide = hideDbToggle && hideDbToggle.checked;
+                if (dbTableWrapper) {
+                    if (shouldHide) {
+                        dbTableWrapper.classList.add('hidden');
+                    } else {
+                        dbTableWrapper.classList.remove('hidden');
+                    }
+                } else if (dbTable) {
+                    dbTable.style.display = shouldHide ? 'none' : 'table';
+                }
+            }
+
+            function markProductInPool(name, inPool) {
+                const entry = dbRowMap.get(name);
+                if (!entry) {
                     return;
                 }
-                dbTable.style.display = hideDbToggle && hideDbToggle.checked ? 'none' : 'table';
+                const { row, button } = entry;
+                if (inPool) {
+                    row.classList.add('db-row-in-pool');
+                    if (button) {
+                        button.textContent = '-';
+                        button.classList.add('in-pool');
+                        button.setAttribute('aria-label', `Убрать «${name}» из пула`);
+                    }
+                } else {
+                    row.classList.remove('db-row-in-pool');
+                    if (button) {
+                        button.textContent = '+';
+                        button.classList.remove('in-pool');
+                        button.setAttribute('aria-label', `Добавить «${name}» в пул`);
+                    }
+                }
             }
 
             function gatherOptimizationProducts() {
@@ -583,7 +723,6 @@
                 }
                 const existing = document.querySelector(`#pool tbody tr[data-name="${name}"]`);
                 if (existing) {
-                    alert('Продукт уже в пуле');
                     return;
                 }
                 const data = state.products[name] || {};
@@ -676,6 +815,10 @@
 
                 optimizeCheckbox.addEventListener('change', updateOptimizeState);
                 updateOptimizeState();
+
+                state.poolProducts.add(name);
+                markProductInPool(name, true);
+                resetOptimizationResults();
             }
 
             function removeFromPool(name) {
@@ -684,6 +827,8 @@
                     row.remove();
                 }
                 state.optimizationList.delete(name);
+                state.poolProducts.delete(name);
+                markProductInPool(name, false);
                 resetOptimizationResults();
             }
 
@@ -752,6 +897,28 @@
                 }
                 const requiredKeys = ['proteins', 'saturated', 'unsaturated', 'simple', 'complex', 'soluble', 'insoluble', 'calories'];
                 return requiredKeys.every(key => Number.isFinite(Number(targets[key])));
+            }
+
+            function setupDatabaseModal() {
+                if (!dbDialog) {
+                    return;
+                }
+                if (openDbButton) {
+                    openDbButton.addEventListener('click', () => {
+                        updateNutrientVisibility();
+                        updateDbVisibility();
+                        dbDialog.showModal();
+                    });
+                }
+                if (closeDbButton) {
+                    closeDbButton.addEventListener('click', () => {
+                        dbDialog.close();
+                    });
+                }
+                dbDialog.addEventListener('cancel', event => {
+                    event.preventDefault();
+                    dbDialog.close();
+                });
             }
 
             function setupCalculator() {
@@ -1088,6 +1255,7 @@
                                 return;
                             }
                             const tr = document.createElement('tr');
+                            tr.setAttribute('data-name', name);
                             tr.innerHTML = `
                                 <td><button type="button" class="add-product">+</button></td>
                                 <td>${name}</td>
@@ -1106,8 +1274,14 @@
                             updateNutrientVisibility();
 
                             const addButton = tr.querySelector('.add-product');
+                            dbRowMap.set(name, { row: tr, button: addButton });
+                            markProductInPool(name, state.poolProducts.has(name));
                             addButton.addEventListener('click', () => {
-                                addToPool(name);
+                                if (state.poolProducts.has(name)) {
+                                    removeFromPool(name);
+                                } else {
+                                    addToPool(name);
+                                }
                             });
                         });
                     })
@@ -1116,6 +1290,7 @@
                     });
             }
 
+            setupDatabaseModal();
             setupCalculator();
             initialise();
         })();
