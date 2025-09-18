@@ -1,6 +1,8 @@
 import csv
 import math
+import os
 import random
+import time
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Mapping, Optional, Sequence
 
@@ -350,15 +352,42 @@ def _run_iterative_optimisation(
     capacities: Mapping[int, float],
     steps: Mapping[int, float],
     residual_fraction: float,
+    rng: random.Random,
+    noise_strength: float = 0.0,
 ) -> Dict[int, float]:
     if not ordered_indices:
         return {}
 
-    residual_vec = {key: float(residual.get(key, 0.0)) for key in NUTRIENT_VECTOR_KEYS}
+    base_residual_vec = {
+        key: max(0.0, float(residual.get(key, 0.0))) for key in NUTRIENT_VECTOR_KEYS
+    }
+    noise_scale = max(0.0, float(noise_strength or 0.0))
+    if noise_scale > 0.0:
+        noise_vector = [
+            max(0.0, 1.0 + rng.uniform(-noise_scale, noise_scale))
+            for _ in NUTRIENT_VECTOR_KEYS
+        ]
+    else:
+        noise_vector = [1.0] * len(NUTRIENT_VECTOR_KEYS)
+
+    residual_vec = {
+        key: base_residual_vec[key] * noise_vector[pos]
+        for pos, key in enumerate(NUTRIENT_VECTOR_KEYS)
+    }
     additions = {idx: 0.0 for idx in ordered_indices}
     active = list(ordered_indices)
     iteration = 0
-    weight_vector = np.array([RMSE_WEIGHTS.get(key, 1.0) for key in NUTRIENT_VECTOR_KEYS], dtype=float)
+    base_weight_vector = np.array(
+        [RMSE_WEIGHTS.get(key, 1.0) for key in NUTRIENT_VECTOR_KEYS], dtype=float
+    )
+    if noise_scale > 0.0:
+        weight_noise = np.array(
+            [max(0.05, 1.0 + rng.uniform(-noise_scale, noise_scale)) for _ in NUTRIENT_VECTOR_KEYS],
+            dtype=float,
+        )
+        weight_vector = base_weight_vector * weight_noise
+    else:
+        weight_vector = base_weight_vector
 
     while active and iteration < MAX_OPTIMISATION_ROUNDS:
         filtered: List[int] = []
@@ -420,17 +449,73 @@ def _run_iterative_optimisation(
     return {idx: additions[idx] for idx in ordered_indices if additions[idx] > 0}
 
 
+def _randomised_candidate(
+    variable_indices: Sequence[int],
+    base_totals: Mapping[str, float],
+    per_gram_map: Mapping[int, np.ndarray],
+    capacities: Mapping[int, float],
+    steps: Mapping[int, float],
+    share: float,
+    rng: random.Random,
+) -> tuple[Dict[int, float], Dict[str, float]]:
+    additions: Dict[int, float] = {}
+    totals = dict(base_totals)
+    share = max(0.0, min(1.0, share))
+    for idx in variable_indices:
+        capacity = max(0.0, capacities.get(idx, 0.0))
+        if capacity <= 0:
+            continue
+        target_capacity = max(0.0, min(capacity, capacity * share))
+        if target_capacity <= 0:
+            continue
+        step = steps.get(idx, 0.0)
+        if step > 0:
+            max_steps = int(math.floor(target_capacity / step + 1e-9))
+            if max_steps <= 0:
+                continue
+            chosen_steps = rng.randint(0, max_steps)
+            weight = chosen_steps * step
+        else:
+            weight = rng.uniform(0.0, target_capacity)
+        weight = max(0.0, min(weight, capacity))
+        if weight <= 0:
+            continue
+        additions[idx] = weight
+        _accumulate_totals(totals, per_gram_map[idx], weight)
+    return additions, totals
+
+
+def _derive_seed() -> int:
+    try:
+        return int.from_bytes(os.urandom(16), 'big')
+    except NotImplementedError:
+        return int(time.time_ns())
+
+
+def _noise_for_iteration(iteration: int) -> float:
+    if iteration <= 1:
+        return 0.0
+    # увеличиваем амплитуду шума постепенно, но ограничиваем сверху
+    growth = 0.015 * math.sqrt(float(iteration))
+    return min(0.3, 0.05 + growth)
+
+
 def optimise_diet(
     products: Sequence[OptimizationProduct],
     targets: Mapping[str, float],
     run_count: int,
     residual_share: float,
     allow_zero_weights: bool = True,
+    rng: Optional[random.Random] = None,
 ) -> Dict[str, object]:
     if not products:
         raise ValueError('Список продуктов для оптимизации пуст.')
     if run_count <= 0:
         raise ValueError('Количество прогонов должно быть положительным.')
+
+    if rng is None:
+        seed = _derive_seed()
+        rng = random.Random(seed)
 
     targets_map = _normalise_targets(targets)
     per_gram_map = _build_per_gram_map(products)
@@ -471,12 +556,19 @@ def optimise_diet(
     best_share = residual_sequence[0] if residual_sequence else 1.0
     best_additions: Dict[int, float] = {}
 
+    iteration_counter = 0
+
     if variable_indices:
         for share in residual_sequence:
             share = max(0.0, min(1.0, share))
             for run_index in range(1, run_count + 1):
+                iteration_counter += 1
                 shuffled = list(variable_indices)
-                random.shuffle(shuffled)
+                rng.shuffle(shuffled)
+                if iteration_counter == 1:
+                    noise_strength = 0.0
+                else:
+                    noise_strength = _noise_for_iteration(iteration_counter)
                 additions = _run_iterative_optimisation(
                     shuffled,
                     per_gram_map,
@@ -484,14 +576,38 @@ def optimise_diet(
                     capacities,
                     steps,
                     share,
+                    rng,
+                    noise_strength=noise_strength,
                 )
                 totals = dict(base_totals)
                 for idx, grams in additions.items():
                     _accumulate_totals(totals, per_gram_map[idx], grams)
                 score = _weighted_rmse(totals, targets_map)
+
+                if noise_strength > 0.0 and variable_indices:
+                    trial_count = max(
+                        1,
+                        min(len(variable_indices), int(1 + noise_strength * 10)),
+                    )
+                    for _ in range(trial_count):
+                        random_additions, random_totals = _randomised_candidate(
+                            variable_indices,
+                            base_totals,
+                            per_gram_map,
+                            capacities,
+                            steps,
+                            share,
+                            rng,
+                        )
+                        random_score = _weighted_rmse(random_totals, targets_map)
+                        if random_score + 1e-9 < score:
+                            additions = random_additions
+                            totals = random_totals
+                            score = random_score
+
                 if score + 1e-9 < best_score:
                     best_score = score
-                    best_run = run_index
+                    best_run = iteration_counter
                     best_share = share
                     best_totals = totals
                     best_additions = additions
