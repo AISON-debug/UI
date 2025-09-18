@@ -55,6 +55,18 @@
         #best-result {
             margin-top: 16px;
         }
+        #rmse-heatmap-section {
+            margin-top: 16px;
+        }
+        #rmse-heatmap {
+            width: 100%;
+            min-height: 420px;
+        }
+        .heatmap-info {
+            margin-top: 8px;
+            font-size: 14px;
+            color: #374151;
+        }
         dialog {
             border: none;
             border-radius: 16px;
@@ -314,6 +326,10 @@
         <div class="result-row"><strong>Доля остатка (%):</strong> <span id="alpha-result">-</span></div>
         <div class="result-row"><strong>Прогон:</strong> <span id="run-result">-</span></div>
     </div>
+    <div id="rmse-heatmap-section" class="hidden">
+        <div id="rmse-heatmap"></div>
+        <div id="rmse-heatmap-info" class="heatmap-info"></div>
+    </div>
     <div id="result-totals" class="hidden">
         <h3>Сравнение целевых и расчётных нутриентов</h3>
         <table>
@@ -340,6 +356,7 @@
         </table>
     </div>
 
+        <script src="https://cdn.plot.ly/plotly-2.26.0.min.js"></script>
         <script>
         (function() {
             'use strict';
@@ -407,6 +424,9 @@
             const rmseResult = document.getElementById('rmse-result');
             const alphaResult = document.getElementById('alpha-result');
             const runResult = document.getElementById('run-result');
+            const heatmapSection = document.getElementById('rmse-heatmap-section');
+            const heatmapElement = document.getElementById('rmse-heatmap');
+            const heatmapInfo = document.getElementById('rmse-heatmap-info');
             const resultTotalsSection = document.getElementById('result-totals');
             const resultTotalsBody = document.getElementById('result-totals-body');
             const bestResultSection = document.getElementById('best-result');
@@ -451,6 +471,7 @@
                 if (bestResultBody) {
                     bestResultBody.innerHTML = '';
                 }
+                resetHeatmap();
             }
 
             function renderTargetSummary(targets) {
@@ -490,6 +511,134 @@
                 }).join('');
                 resultTotalsBody.innerHTML = rows;
                 resultTotalsSection.classList.remove('hidden');
+            }
+
+            function resetHeatmap() {
+                if (heatmapSection) {
+                    heatmapSection.classList.add('hidden');
+                }
+                if (heatmapInfo) {
+                    heatmapInfo.textContent = '';
+                }
+                if (heatmapElement && typeof Plotly !== 'undefined') {
+                    Plotly.purge(heatmapElement);
+                }
+            }
+
+            function renderRmseHeatmap(records) {
+                resetHeatmap();
+                if (!Array.isArray(records) || !records.length) {
+                    return;
+                }
+                if (!heatmapSection || !heatmapElement || typeof Plotly === 'undefined') {
+                    return;
+                }
+
+                const shareValues = [];
+                const shareSet = new Set();
+                const runValues = [];
+                const runSet = new Set();
+                const pointMap = new Map();
+                let minPoint = null;
+
+                const normaliseKey = value => Math.round(value * 1e6) / 1e6;
+
+                for (const item of records) {
+                    const rawShare = Number(item && (item.residual_share ?? item.share));
+                    const run = Number(item && item.run);
+                    const rmse = Number(item && item.rmse);
+                    if (!Number.isFinite(rawShare) || !Number.isFinite(run) || !Number.isFinite(rmse)) {
+                        continue;
+                    }
+                    const sharePercent = rawShare * 100;
+                    const shareKey = normaliseKey(sharePercent);
+                    const runKey = normaliseKey(run);
+                    if (!shareSet.has(shareKey)) {
+                        shareSet.add(shareKey);
+                        shareValues.push(shareKey);
+                    }
+                    if (!runSet.has(runKey)) {
+                        runSet.add(runKey);
+                        runValues.push(runKey);
+                    }
+                    pointMap.set(`${shareKey}|${runKey}`, rmse);
+                    if (!minPoint || rmse < minPoint.rmse) {
+                        minPoint = { share: shareKey, run: runKey, rmse };
+                    }
+                }
+
+                if (!shareValues.length || !runValues.length || !minPoint) {
+                    return;
+                }
+
+                shareValues.sort((a, b) => a - b);
+                runValues.sort((a, b) => a - b);
+
+                const zValues = runValues.map(() => shareValues.map(() => NaN));
+                runValues.forEach((runValue, rowIndex) => {
+                    shareValues.forEach((shareValue, columnIndex) => {
+                        const key = `${shareValue}|${runValue}`;
+                        if (pointMap.has(key)) {
+                            zValues[rowIndex][columnIndex] = pointMap.get(key);
+                        }
+                    });
+                });
+
+                const colorscale = [
+                    [0, '#ff4500'],
+                    [0.25, '#ff8c00'],
+                    [0.5, '#ffff00'],
+                    [0.75, '#00ffff'],
+                    [1, '#00008b'],
+                ];
+
+                const surfaceTrace = {
+                    type: 'surface',
+                    x: shareValues,
+                    y: runValues,
+                    z: zValues,
+                    colorscale,
+                    showscale: true,
+                    colorbar: { title: 'RMSE' },
+                    hovertemplate: 'Доля остатка: %{x:.2f}%<br>Прогон: %{y:.0f}<br>RMSE: %{z:.4f}<extra></extra>',
+                };
+
+                const minTrace = {
+                    type: 'scatter3d',
+                    mode: 'markers+text',
+                    x: [minPoint.share],
+                    y: [minPoint.run],
+                    z: [minPoint.rmse],
+                    text: [`${minPoint.rmse.toFixed(2)}`],
+                    textposition: 'top center',
+                    marker: {
+                        size: 6,
+                        color: '#ff0000',
+                        symbol: 'circle',
+                    },
+                    name: 'Минимальный RMSE',
+                    hovertemplate: 'Минимум<br>Доля остатка: %{x:.2f}%<br>Прогон: %{y:.0f}<br>RMSE: %{z:.4f}<extra></extra>',
+                };
+
+                const layout = {
+                    margin: { l: 0, r: 0, t: 20, b: 0 },
+                    scene: {
+                        xaxis: { title: 'Доля остатка (%)' },
+                        yaxis: { title: 'Прогон' },
+                        zaxis: { title: 'RMSE' },
+                    },
+                    showlegend: false,
+                };
+
+                Plotly.react(heatmapElement, [surfaceTrace, minTrace], layout, { responsive: true });
+
+                heatmapSection.classList.remove('hidden');
+                if (heatmapInfo) {
+                    const shareText = `${formatNumber(minPoint.share, 2)}%`;
+                    const runText = formatNumber(minPoint.run, 0);
+                    const rmseText = formatNumber(minPoint.rmse, 2);
+                    heatmapInfo.textContent = `Минимальный RMSE: ${rmseText} (доля остатка: ${shareText}, прогон: ${runText})`;
+                }
             }
 
             function extractTargetsFromSummary(summaryElement) {
@@ -744,6 +893,7 @@
                     }
                     bestResultSection.classList.remove('hidden');
                 }
+                renderRmseHeatmap(Array.isArray(result.rmse_map) ? result.rmse_map : null);
             }
 
             function hasValidTargets(targets) {
