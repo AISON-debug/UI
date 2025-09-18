@@ -767,6 +767,7 @@
                 let hasFinite = false;
                 let minValue = Number.POSITIVE_INFINITY;
                 let maxValue = Number.NEGATIVE_INFINITY;
+                let smallestPositive = Number.POSITIVE_INFINITY;
 
                 historyEntries.forEach(entry => {
                     const share = Number(entry && entry.residual_share);
@@ -788,6 +789,9 @@
                     if (rmseValue > maxValue) {
                         maxValue = rmseValue;
                     }
+                    if (rmseValue > 0 && rmseValue < smallestPositive) {
+                        smallestPositive = rmseValue;
+                    }
                 });
 
                 if (!hasFinite || !Number.isFinite(minValue) || !Number.isFinite(maxValue)) {
@@ -796,6 +800,19 @@
                 }
 
                 const sharePercents = shareValues.map(value => value * 100);
+                const hasStrictlyPositive = Number.isFinite(smallestPositive) && smallestPositive > 0;
+                const zeroReplacement = hasStrictlyPositive
+                    ? smallestPositive * 0.1
+                    : 1e-6;
+                const adjustedZMatrix = zMatrix.map(row => row.map(value => {
+                    if (!Number.isFinite(value)) {
+                        return Number.NaN;
+                    }
+                    if (value > 0) {
+                        return value;
+                    }
+                    return zeroReplacement;
+                }));
                 const thermalColorscale = [
                     [0.0, '#ff0000'],
                     [0.2, '#ff6600'],
@@ -809,13 +826,14 @@
                     type: 'surface',
                     x: sharePercents,
                     y: runValues,
-                    z: zMatrix,
+                    z: adjustedZMatrix,
+                    customdata: zMatrix,
                     colorscale: thermalColorscale,
                     cmin: minValue,
                     cmax: maxValue,
                     showscale: true,
                     colorbar: { title: 'RMSE' },
-                    hovertemplate: 'Доля остатка: %{x:.2f}%<br>Прогон: %{y}<br>RMSE: %{z:.4f}<extra></extra>',
+                    hovertemplate: 'Доля остатка: %{x:.2f}%<br>Прогон: %{y}<br>RMSE: %{customdata:.4f}<extra></extra>',
                     name: 'RMSE'
                 };
 
@@ -847,12 +865,13 @@
 
                 const traces = [surfaceTrace];
                 if (minimalEntry) {
+                    const minimalEntryZ = minimalEntry.rmse > 0 ? minimalEntry.rmse : zeroReplacement;
                     traces.push({
                         type: 'scatter3d',
                         mode: 'markers+text',
                         x: [minimalEntry.share * 100],
                         y: [minimalEntry.run],
-                        z: [minimalEntry.rmse],
+                        z: [minimalEntryZ],
                         marker: {
                             size: 6,
                             color: '#ff4500',
@@ -861,7 +880,8 @@
                         text: [`${minimalEntry.rmse.toFixed(2)}`],
                         textposition: 'top center',
                         name: 'Минимальный RMSE',
-                        hovertemplate: 'Минимальный RMSE<br>Доля остатка: %{x:.2f}%<br>Прогон: %{y}<br>RMSE: %{z:.4f}<extra></extra>'
+                        customdata: [minimalEntry.rmse],
+                        hovertemplate: 'Минимальный RMSE<br>Доля остатка: %{x:.2f}%<br>Прогон: %{y}<br>RMSE: %{customdata:.4f}<extra></extra>'
                     });
                 }
 
@@ -872,7 +892,11 @@
                     scene: {
                         xaxis: { title: 'Доля остатка (%)' },
                         yaxis: { title: 'Прогон' },
-                        zaxis: { title: 'RMSE' },
+                        zaxis: {
+                            title: 'RMSE',
+                            type: 'log',
+                            autorange: true
+                        },
                         aspectmode: 'cube',
                         camera: {
                             eye: { x: 1.35, y: 1.35, z: 0.9 }
