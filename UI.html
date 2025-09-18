@@ -804,34 +804,52 @@
                 const zeroReplacement = hasStrictlyPositive
                     ? smallestPositive * 0.1
                     : 1e-6;
+                let adjustedMinValue = Number.POSITIVE_INFINITY;
+                let adjustedMaxValue = Number.NEGATIVE_INFINITY;
                 const adjustedZMatrix = zMatrix.map(row => row.map(value => {
                     if (!Number.isFinite(value)) {
                         return Number.NaN;
                     }
-                    if (value > 0) {
-                        return value;
+                    const positiveValue = value > 0 ? value : zeroReplacement;
+                    if (positiveValue < adjustedMinValue) {
+                        adjustedMinValue = positiveValue;
                     }
-                    return zeroReplacement;
+                    if (positiveValue > adjustedMaxValue) {
+                        adjustedMaxValue = positiveValue;
+                    }
+                    return positiveValue;
                 }));
-                let adjustedMinValue = Number.POSITIVE_INFINITY;
-                let adjustedMaxValue = Number.NEGATIVE_INFINITY;
-                const hoverTextMatrix = adjustedZMatrix.map((row, rowIndex) => row.map((value, colIndex) => {
+
+                if (!Number.isFinite(adjustedMinValue) || !Number.isFinite(adjustedMaxValue)) {
+                    clearOptimizationHeatmap();
+                    return;
+                }
+
+                const hoverTextMatrix = zMatrix.map(row => row.map(value => {
                     if (Number.isFinite(value)) {
-                        if (value < adjustedMinValue) {
-                            adjustedMinValue = value;
-                        }
-                        if (value > adjustedMaxValue) {
-                            adjustedMaxValue = value;
-                        }
-                    }
-                    const rawRmse = zMatrix[rowIndex][colIndex];
-                    if (Number.isFinite(rawRmse)) {
-                        return rawRmse.toFixed(4);
+                        return value.toFixed(4);
                     }
                     return 'нет данных';
                 }));
 
-                if (!Number.isFinite(adjustedMinValue) || !Number.isFinite(adjustedMaxValue)) {
+                const colorReplacement = hasStrictlyPositive ? smallestPositive : zeroReplacement;
+                let colorMinValue = Number.POSITIVE_INFINITY;
+                let colorMaxValue = Number.NEGATIVE_INFINITY;
+                const surfaceColorMatrix = zMatrix.map(row => row.map(value => {
+                    if (!Number.isFinite(value)) {
+                        return Number.NaN;
+                    }
+                    const positiveValue = value > 0 ? value : colorReplacement;
+                    if (positiveValue < colorMinValue) {
+                        colorMinValue = positiveValue;
+                    }
+                    if (positiveValue > colorMaxValue) {
+                        colorMaxValue = positiveValue;
+                    }
+                    return positiveValue;
+                }));
+
+                if (!Number.isFinite(colorMinValue) || !Number.isFinite(colorMaxValue)) {
                     clearOptimizationHeatmap();
                     return;
                 }
@@ -846,16 +864,15 @@
                 ];
 
                 const colorbarConfig = { title: 'RMSE' };
-                if (adjustedMaxValue > adjustedMinValue && maxValue > minValue) {
+                if (colorMaxValue > colorMinValue) {
                     const tickCount = 5;
                     const tickvals = [];
                     const ticktext = [];
                     for (let index = 0; index < tickCount; index += 1) {
                         const fraction = tickCount === 1 ? 0 : index / (tickCount - 1);
-                        const tickValue = adjustedMinValue + fraction * (adjustedMaxValue - adjustedMinValue);
-                        const actualValue = minValue + fraction * (maxValue - minValue);
+                        const tickValue = colorMinValue + fraction * (colorMaxValue - colorMinValue);
                         tickvals.push(tickValue);
-                        ticktext.push(formatNumber(actualValue, 4));
+                        ticktext.push(formatNumber(tickValue, 4));
                     }
                     colorbarConfig.tickvals = tickvals;
                     colorbarConfig.ticktext = ticktext;
@@ -866,22 +883,22 @@
                     x: sharePercents,
                     y: runValues,
                     z: adjustedZMatrix,
-                    customdata: zMatrix,
-                    text: hoverTextMatrix,
+                    surfacecolor: surfaceColorMatrix,
+                    customdata: hoverTextMatrix,
                     colorscale: thermalColorscale,
                     cauto: false,
-                    cmin: adjustedMinValue,
-                    cmax: adjustedMaxValue,
+                    cmin: colorMinValue,
+                    cmax: colorMaxValue,
                     showscale: true,
                     colorbar: colorbarConfig,
-                    hovertemplate: 'Доля остатка: %{x:.2f}%<br>Прогон: %{y}<br>RMSE: %{text}<extra></extra>',
+                    hovertemplate: 'Доля остатка: %{x:.2f}%<br>Прогон: %{y}<br>RMSE: %{customdata}<extra></extra>',
                     name: 'RMSE'
                 };
 
-                if (adjustedMinValue === adjustedMaxValue) {
-                    const epsilon = Math.max(Math.abs(adjustedMinValue) * 1e-6, 1e-6);
-                    surfaceTrace.cmin = adjustedMinValue - epsilon;
-                    surfaceTrace.cmax = adjustedMaxValue + epsilon;
+                if (colorMinValue === colorMaxValue) {
+                    const epsilon = Math.max(Math.abs(colorMinValue) * 1e-6, 1e-6);
+                    surfaceTrace.cmin = colorMinValue - epsilon;
+                    surfaceTrace.cmax = colorMaxValue + epsilon;
                 }
 
                 let minimalEntry = null;
