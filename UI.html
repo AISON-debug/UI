@@ -863,19 +863,39 @@
                     [1.0, '#0000ff']
                 ];
 
+                const colorRangeWidth = colorMaxValue - colorMinValue;
                 const colorbarConfig = { title: 'RMSE' };
-                if (colorMaxValue > colorMinValue) {
+                let normalizedSurfaceColorMatrix;
+                let colorScaleMin = 0;
+                let colorScaleMax = 1;
+
+                if (colorRangeWidth > 0 && Number.isFinite(colorRangeWidth)) {
+                    normalizedSurfaceColorMatrix = surfaceColorMatrix.map(row => row.map(value => {
+                        if (!Number.isFinite(value)) {
+                            return Number.NaN;
+                        }
+                        return (value - colorMinValue) / colorRangeWidth;
+                    }));
                     const tickCount = 5;
                     const tickvals = [];
                     const ticktext = [];
                     for (let index = 0; index < tickCount; index += 1) {
                         const fraction = tickCount === 1 ? 0 : index / (tickCount - 1);
-                        const tickValue = colorMinValue + fraction * (colorMaxValue - colorMinValue);
-                        tickvals.push(tickValue);
+                        tickvals.push(fraction);
+                        const tickValue = colorMinValue + fraction * colorRangeWidth;
                         ticktext.push(formatNumber(tickValue, 4));
                     }
                     colorbarConfig.tickvals = tickvals;
                     colorbarConfig.ticktext = ticktext;
+                } else {
+                    normalizedSurfaceColorMatrix = surfaceColorMatrix.map(row => row.map(value => {
+                        if (!Number.isFinite(value)) {
+                            return Number.NaN;
+                        }
+                        return 0.5;
+                    }));
+                    colorbarConfig.tickvals = [0.5];
+                    colorbarConfig.ticktext = [formatNumber(colorMinValue, 4)];
                 }
 
                 const surfaceTrace = {
@@ -883,23 +903,17 @@
                     x: sharePercents,
                     y: runValues,
                     z: adjustedZMatrix,
-                    surfacecolor: surfaceColorMatrix,
+                    surfacecolor: normalizedSurfaceColorMatrix,
                     customdata: hoverTextMatrix,
                     colorscale: thermalColorscale,
                     cauto: false,
-                    cmin: colorMinValue,
-                    cmax: colorMaxValue,
+                    cmin: colorScaleMin,
+                    cmax: colorScaleMax,
                     showscale: true,
                     colorbar: colorbarConfig,
                     hovertemplate: 'Доля остатка: %{x:.2f}%<br>Прогон: %{y}<br>RMSE: %{customdata}<extra></extra>',
                     name: 'RMSE'
                 };
-
-                if (colorMinValue === colorMaxValue) {
-                    const epsilon = Math.max(Math.abs(colorMinValue) * 1e-6, 1e-6);
-                    surfaceTrace.cmin = colorMinValue - epsilon;
-                    surfaceTrace.cmax = colorMaxValue + epsilon;
-                }
 
                 let minimalEntry = null;
                 historyEntries.forEach(entry => {
@@ -943,6 +957,32 @@
                     });
                 }
 
+                const rmseAxisMin = minValue > 0 ? minValue : (hasStrictlyPositive ? smallestPositive : zeroReplacement);
+                let rmseAxisMax = maxValue > 0 ? maxValue : rmseAxisMin;
+                if (!Number.isFinite(rmseAxisMax) || rmseAxisMax <= 0) {
+                    rmseAxisMax = rmseAxisMin > 0 ? rmseAxisMin : 1;
+                }
+                if (rmseAxisMax <= rmseAxisMin) {
+                    rmseAxisMax = rmseAxisMin * 1.0001;
+                }
+
+                let zAxisRange = null;
+                if (rmseAxisMin > 0 && rmseAxisMax > 0 && Number.isFinite(rmseAxisMin) && Number.isFinite(rmseAxisMax)) {
+                    const lower = Math.log10(rmseAxisMin);
+                    const upper = Math.log10(rmseAxisMax);
+                    if (Number.isFinite(lower) && Number.isFinite(upper)) {
+                        zAxisRange = [lower, upper];
+                    }
+                }
+
+                const zAxisConfig = { title: 'RMSE', type: 'log' };
+                if (zAxisRange) {
+                    zAxisConfig.autorange = false;
+                    zAxisConfig.range = zAxisRange;
+                } else {
+                    zAxisConfig.autorange = true;
+                }
+
                 const layout = {
                     title: 'Тепловая карта RMSE',
                     autosize: true,
@@ -950,11 +990,7 @@
                     scene: {
                         xaxis: { title: 'Доля остатка (%)' },
                         yaxis: { title: 'Прогон' },
-                        zaxis: {
-                            title: 'RMSE',
-                            type: 'log',
-                            autorange: true
-                        },
+                        zaxis: zAxisConfig,
                         aspectmode: 'cube',
                         camera: {
                             eye: { x: 1.35, y: 1.35, z: 0.9 }
