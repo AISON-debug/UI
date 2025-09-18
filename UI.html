@@ -813,6 +813,29 @@
                     }
                     return zeroReplacement;
                 }));
+                let adjustedMinValue = Number.POSITIVE_INFINITY;
+                let adjustedMaxValue = Number.NEGATIVE_INFINITY;
+                const hoverTextMatrix = adjustedZMatrix.map((row, rowIndex) => row.map((value, colIndex) => {
+                    if (Number.isFinite(value)) {
+                        if (value < adjustedMinValue) {
+                            adjustedMinValue = value;
+                        }
+                        if (value > adjustedMaxValue) {
+                            adjustedMaxValue = value;
+                        }
+                    }
+                    const rawRmse = zMatrix[rowIndex][colIndex];
+                    if (Number.isFinite(rawRmse)) {
+                        return rawRmse.toFixed(4);
+                    }
+                    return 'нет данных';
+                }));
+
+                if (!Number.isFinite(adjustedMinValue) || !Number.isFinite(adjustedMaxValue)) {
+                    clearOptimizationHeatmap();
+                    return;
+                }
+
                 const thermalColorscale = [
                     [0.0, '#ff0000'],
                     [0.2, '#ff6600'],
@@ -822,25 +845,43 @@
                     [1.0, '#0000ff']
                 ];
 
+                const colorbarConfig = { title: 'RMSE' };
+                if (adjustedMaxValue > adjustedMinValue && maxValue > minValue) {
+                    const tickCount = 5;
+                    const tickvals = [];
+                    const ticktext = [];
+                    for (let index = 0; index < tickCount; index += 1) {
+                        const fraction = tickCount === 1 ? 0 : index / (tickCount - 1);
+                        const tickValue = adjustedMinValue + fraction * (adjustedMaxValue - adjustedMinValue);
+                        const actualValue = minValue + fraction * (maxValue - minValue);
+                        tickvals.push(tickValue);
+                        ticktext.push(formatNumber(actualValue, 4));
+                    }
+                    colorbarConfig.tickvals = tickvals;
+                    colorbarConfig.ticktext = ticktext;
+                }
+
                 const surfaceTrace = {
                     type: 'surface',
                     x: sharePercents,
                     y: runValues,
                     z: adjustedZMatrix,
                     customdata: zMatrix,
+                    text: hoverTextMatrix,
                     colorscale: thermalColorscale,
-                    cmin: minValue,
-                    cmax: maxValue,
+                    cauto: false,
+                    cmin: adjustedMinValue,
+                    cmax: adjustedMaxValue,
                     showscale: true,
-                    colorbar: { title: 'RMSE' },
-                    hovertemplate: 'Доля остатка: %{x:.2f}%<br>Прогон: %{y}<br>RMSE: %{customdata:.4f}<extra></extra>',
+                    colorbar: colorbarConfig,
+                    hovertemplate: 'Доля остатка: %{x:.2f}%<br>Прогон: %{y}<br>RMSE: %{text}<extra></extra>',
                     name: 'RMSE'
                 };
 
-                if (minValue === maxValue) {
-                    const epsilon = Math.max(Math.abs(minValue) * 1e-6, 1e-6);
-                    surfaceTrace.cmin = minValue - epsilon;
-                    surfaceTrace.cmax = maxValue + epsilon;
+                if (adjustedMinValue === adjustedMaxValue) {
+                    const epsilon = Math.max(Math.abs(adjustedMinValue) * 1e-6, 1e-6);
+                    surfaceTrace.cmin = adjustedMinValue - epsilon;
+                    surfaceTrace.cmax = adjustedMaxValue + epsilon;
                 }
 
                 let minimalEntry = null;
