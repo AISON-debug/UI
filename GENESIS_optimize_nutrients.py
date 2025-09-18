@@ -471,6 +471,20 @@ def optimise_diet(
     best_share = residual_sequence[0] if residual_sequence else 1.0
     best_additions: Dict[int, float] = {}
 
+    history_entries: List[Dict[str, object]] = []
+
+    def record_history(share_value: float, run_index: int, score_value: float) -> None:
+        history_entries.append(
+            {
+                'residual_share': round(float(max(0.0, min(1.0, share_value))), 6),
+                'run': int(run_index),
+                'rmse': round(float(score_value), 6),
+            }
+        )
+
+    initial_share = residual_sequence[0] if residual_sequence else max(0.0, min(1.0, residual_share))
+    record_history(initial_share, 0, best_score)
+
     if variable_indices:
         for share in residual_sequence:
             share = max(0.0, min(1.0, share))
@@ -489,6 +503,7 @@ def optimise_diet(
                 for idx, grams in additions.items():
                     _accumulate_totals(totals, per_gram_map[idx], grams)
                 score = _weighted_rmse(totals, targets_map)
+                record_history(share, run_index, score)
                 if score + 1e-9 < best_score:
                     best_score = score
                     best_run = run_index
@@ -510,6 +525,7 @@ def optimise_diet(
         'residual_share': round(float(best_share), 6),
         'weights': weight_summary,
         'totals': result_totals,
+        'history': history_entries,
     }
 
 

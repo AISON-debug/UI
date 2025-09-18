@@ -194,7 +194,15 @@
             background: #fff;
             color: #111;
         }
+        #optimization-heatmap-wrapper {
+            margin-top: 16px;
+        }
+        #optimization-heatmap {
+            width: 100%;
+            height: 420px;
+        }
     </style>
+    <script src="https://cdn.plot.ly/plotly-2.30.0.min.js"></script>
 </head>
 <body>
     <label><input type="checkbox" id="toggle-expanded" checked> Развернутая таблица нутриентов</label>
@@ -409,6 +417,9 @@
         <div class="result-row"><strong>Доля остатка (%):</strong> <span id="alpha-result">-</span></div>
         <div class="result-row"><strong>Прогон:</strong> <span id="run-result">-</span></div>
     </div>
+    <div id="optimization-heatmap-wrapper" class="hidden">
+        <div id="optimization-heatmap"></div>
+    </div>
     <div id="result-totals" class="hidden">
         <h3>Сравнение целевых и расчётных нутриентов</h3>
         <table>
@@ -528,6 +539,8 @@
             const rmseResult = document.getElementById('rmse-result');
             const alphaResult = document.getElementById('alpha-result');
             const runResult = document.getElementById('run-result');
+            const optimizationHeatmapWrapper = document.getElementById('optimization-heatmap-wrapper');
+            const optimizationHeatmap = document.getElementById('optimization-heatmap');
             const resultTotalsSection = document.getElementById('result-totals');
             const resultTotalsBody = document.getElementById('result-totals-body');
             const bestResultSection = document.getElementById('best-result');
@@ -651,6 +664,7 @@
                 if (bestResultBody) {
                     bestResultBody.innerHTML = '';
                 }
+                clearOptimizationHeatmap();
             }
 
             function renderTargetSummary(targets) {
@@ -690,6 +704,192 @@
                 }).join('');
                 resultTotalsBody.innerHTML = rows;
                 resultTotalsSection.classList.remove('hidden');
+            }
+
+            function clearOptimizationHeatmap() {
+                if (!optimizationHeatmapWrapper || !optimizationHeatmap) {
+                    return;
+                }
+                optimizationHeatmapWrapper.classList.add('hidden');
+                if (window.Plotly && typeof window.Plotly.purge === 'function') {
+                    window.Plotly.purge(optimizationHeatmap);
+                } else {
+                    optimizationHeatmap.innerHTML = '';
+                }
+            }
+
+            function renderOptimizationHeatmap(historyEntries) {
+                if (!optimizationHeatmapWrapper || !optimizationHeatmap) {
+                    return;
+                }
+                if (!Array.isArray(historyEntries) || !historyEntries.length || !window.Plotly) {
+                    clearOptimizationHeatmap();
+                    return;
+                }
+
+                const shareMap = new Map();
+                const runMap = new Map();
+                const shareValues = [];
+                const runValues = [];
+
+                historyEntries.forEach(entry => {
+                    const share = Number(entry && entry.residual_share);
+                    const run = Number(entry && entry.run);
+                    const rmseValue = Number(entry && entry.rmse);
+                    if (!Number.isFinite(share) || !Number.isFinite(run) || !Number.isFinite(rmseValue)) {
+                        return;
+                    }
+                    const shareKey = share.toFixed(6);
+                    if (!shareMap.has(shareKey)) {
+                        shareMap.set(shareKey, shareValues.length);
+                        shareValues.push(share);
+                    }
+                    const runKey = run.toString();
+                    if (!runMap.has(runKey)) {
+                        runMap.set(runKey, runValues.length);
+                        runValues.push(run);
+                    }
+                });
+
+                if (!shareValues.length || !runValues.length) {
+                    clearOptimizationHeatmap();
+                    return;
+                }
+
+                shareValues.sort((a, b) => a - b);
+                runValues.sort((a, b) => a - b);
+                shareMap.clear();
+                runMap.clear();
+                shareValues.forEach((value, index) => shareMap.set(value.toFixed(6), index));
+                runValues.forEach((value, index) => runMap.set(value.toString(), index));
+
+                const zMatrix = runValues.map(() => shareValues.map(() => Number.NaN));
+                let hasFinite = false;
+                let minValue = Number.POSITIVE_INFINITY;
+                let maxValue = Number.NEGATIVE_INFINITY;
+
+                historyEntries.forEach(entry => {
+                    const share = Number(entry && entry.residual_share);
+                    const run = Number(entry && entry.run);
+                    const rmseValue = Number(entry && entry.rmse);
+                    if (!Number.isFinite(share) || !Number.isFinite(run) || !Number.isFinite(rmseValue)) {
+                        return;
+                    }
+                    const colIndex = shareMap.get(share.toFixed(6));
+                    const rowIndex = runMap.get(run.toString());
+                    if (colIndex === undefined || rowIndex === undefined) {
+                        return;
+                    }
+                    zMatrix[rowIndex][colIndex] = rmseValue;
+                    hasFinite = true;
+                    if (rmseValue < minValue) {
+                        minValue = rmseValue;
+                    }
+                    if (rmseValue > maxValue) {
+                        maxValue = rmseValue;
+                    }
+                });
+
+                if (!hasFinite || !Number.isFinite(minValue) || !Number.isFinite(maxValue)) {
+                    clearOptimizationHeatmap();
+                    return;
+                }
+
+                const sharePercents = shareValues.map(value => value * 100);
+                const thermalColorscale = [
+                    [0.0, '#ff0000'],
+                    [0.2, '#ff6600'],
+                    [0.4, '#ffcc00'],
+                    [0.6, '#ccff33'],
+                    [0.8, '#66ccff'],
+                    [1.0, '#0000ff']
+                ];
+
+                const surfaceTrace = {
+                    type: 'surface',
+                    x: sharePercents,
+                    y: runValues,
+                    z: zMatrix,
+                    colorscale: thermalColorscale,
+                    cmin: minValue,
+                    cmax: maxValue,
+                    showscale: true,
+                    colorbar: { title: 'RMSE' },
+                    hovertemplate: 'Доля остатка: %{x:.2f}%<br>Прогон: %{y}<br>RMSE: %{z:.4f}<extra></extra>',
+                    name: 'RMSE'
+                };
+
+                if (minValue === maxValue) {
+                    const epsilon = Math.max(Math.abs(minValue) * 1e-6, 1e-6);
+                    surfaceTrace.cmin = minValue - epsilon;
+                    surfaceTrace.cmax = maxValue + epsilon;
+                }
+
+                let minimalEntry = null;
+                historyEntries.forEach(entry => {
+                    const share = Number(entry && entry.residual_share);
+                    const run = Number(entry && entry.run);
+                    const rmseValue = Number(entry && entry.rmse);
+                    if (!Number.isFinite(share) || !Number.isFinite(run) || !Number.isFinite(rmseValue)) {
+                        return;
+                    }
+                    if (
+                        !minimalEntry
+                        || rmseValue < minimalEntry.rmse - 1e-9
+                        || (
+                            Math.abs(rmseValue - minimalEntry.rmse) <= 1e-9
+                            && (share < minimalEntry.share || (share === minimalEntry.share && run < minimalEntry.run))
+                        )
+                    ) {
+                        minimalEntry = { share, run, rmse: rmseValue };
+                    }
+                });
+
+                const traces = [surfaceTrace];
+                if (minimalEntry) {
+                    traces.push({
+                        type: 'scatter3d',
+                        mode: 'markers+text',
+                        x: [minimalEntry.share * 100],
+                        y: [minimalEntry.run],
+                        z: [minimalEntry.rmse],
+                        marker: {
+                            size: 6,
+                            color: '#ff4500',
+                            line: { width: 1, color: '#ffffff' }
+                        },
+                        text: [`${minimalEntry.rmse.toFixed(2)}`],
+                        textposition: 'top center',
+                        name: 'Минимальный RMSE',
+                        hovertemplate: 'Минимальный RMSE<br>Доля остатка: %{x:.2f}%<br>Прогон: %{y}<br>RMSE: %{z:.4f}<extra></extra>'
+                    });
+                }
+
+                const layout = {
+                    title: 'Тепловая карта RMSE',
+                    autosize: true,
+                    margin: { l: 0, r: 0, b: 0, t: 40 },
+                    scene: {
+                        xaxis: { title: 'Доля остатка (%)' },
+                        yaxis: { title: 'Прогон' },
+                        zaxis: { title: 'RMSE' },
+                        aspectmode: 'cube',
+                        camera: {
+                            eye: { x: 1.35, y: 1.35, z: 0.9 }
+                        }
+                    }
+                };
+
+                const config = {
+                    responsive: true,
+                    displaylogo: false,
+                    modeBarButtonsToRemove: ['autoScale2d', 'resetScale2d']
+                };
+
+                const plotly = window.Plotly;
+                const method = typeof plotly.react === 'function' ? 'react' : 'newPlot';
+                plotly[method](optimizationHeatmap, traces, layout, config);
+                optimizationHeatmapWrapper.classList.remove('hidden');
             }
 
             function extractTargetsFromSummary(summaryElement) {
@@ -941,6 +1141,8 @@
                 const targetsForTotals = (result && typeof result.targets === 'object') ? result.targets : state.currentTargets;
                 const totalsForResult = result && typeof result.totals === 'object' ? result.totals : null;
                 renderResultTotals(targetsForTotals, totalsForResult);
+                const historyEntries = Array.isArray(result.history) ? result.history : [];
+                renderOptimizationHeatmap(historyEntries);
                 if (bestResultBody && bestResultSection) {
                     const weights = Array.isArray(result.weights)
                         ? result.weights.filter(item => Number.isFinite(item.weight) && item.weight >= 0)
