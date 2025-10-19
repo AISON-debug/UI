@@ -206,27 +206,37 @@ def _estimate_alpha(
         residual_value = residuals.get(key, 0.0)
         if residual_value <= RESIDUAL_EPS:
             continue
-        ratios: List[float] = []
+
+        total_portion = 0.0
         for idx in active_indices:
             available = max(0.0, capacities.get(idx, 0.0) - additions.get(idx, 0.0))
             if available <= RESIDUAL_EPS:
                 continue
+
             per_nutrient = float(per_gram_map[idx][nutrient_index])
             if per_nutrient <= 0.0:
                 continue
+
             step = steps.get(idx, 0.0)
             if step > 0.0:
-                increment = min(available, step)
+                usable_steps = math.floor((available + RESIDUAL_EPS) / step)
+                if usable_steps <= 0:
+                    continue
+                increment = usable_steps * step
             else:
                 increment = available
+
             if increment <= RESIDUAL_EPS:
                 continue
+
             portion_value = per_nutrient * increment
             if portion_value <= 0.0:
                 continue
-            ratios.append(portion_value / residual_value)
-        if ratios:
-            alpha_candidates.append(min(ratios))
+
+            total_portion += portion_value
+
+        if total_portion > 0.0:
+            alpha_candidates.append(total_portion / residual_value)
 
     if not alpha_candidates:
         return 0.0
